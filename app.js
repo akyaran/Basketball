@@ -30,7 +30,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.3.2";
+const APP_VERSION = "0.4.0";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -65,6 +65,8 @@ const state = {
   playerScore: 0,
   cpuScore: 0,
   possession: "player",
+  cpuShotTimer: 0,
+  cpuDrivePhase: 0,
   messageTimer: 0,
   message: "Ready",
   timingActive: false,
@@ -207,12 +209,22 @@ function applySettingsToControls() {
 }
 
 function resetPossession(scoredByPlayer) {
-  player.x = scoredByPlayer ? 340 : 380;
+  setPossession(scoredByPlayer ? "player" : "cpu");
+}
+
+function setPossession(possession) {
+  state.possession = possession;
+  state.cpuShotTimer = possession === "cpu" ? 1.35 : 0;
+  state.cpuDrivePhase = Math.random() * Math.PI * 2;
+  player.x = possession === "player" ? 340 : 515;
   player.y = 310;
-  defender.x = scoredByPlayer ? 555 : 500;
-  defender.y = 310;
+  defender.x = possession === "player" ? 555 : 350;
+  defender.y = possession === "player" ? 310 : 310;
+  player.vx = 0;
+  player.vy = 0;
+  defender.vx = 0;
+  defender.vy = 0;
   state.ball = null;
-  state.possession = "player";
   state.shotCharge = 0;
   state.timingActive = false;
   state.timingHold = 0;
@@ -237,6 +249,7 @@ function addBurst(x, y, color, count = 16) {
 
 function startShot(pointer) {
   if (!state.started) return;
+  if (state.possession !== "player") return;
   if (state.ball || player.cooldown > 0) return;
   input.shootingId = pointer.pointerId;
   input.shotStartX = pointer.clientX;
@@ -325,6 +338,7 @@ function launchShot(skill, source, perfectTiming) {
     : { x: court.hoop.x + missDepth, y: court.hoop.y + missSide };
 
   state.ball = {
+    owner: "player",
     startX: player.x,
     startY: player.y - 7,
     x: player.x,
@@ -344,6 +358,40 @@ function launchShot(skill, source, perfectTiming) {
   player.cooldown = 0.7;
   state.slowUntil = state.time + 360;
   shotReadout.textContent = perfectTiming ? "Green" : quality > 0.8 ? "Clean" : quality > 0.58 ? "Good" : "Tough";
+}
+
+function launchCpuShot() {
+  const shotDistance = distance(defender, court.hoop);
+  const defenderDistance = distance(defender, player);
+  const contest = clamp(1 - (defenderDistance - 42) / 185, 0, 1);
+  const range = clamp((shotDistance - 150) / 520, 0, 1);
+  const halfCourtPenalty = clamp((court.hoop.x - defender.x - court.w / 2) / 170, 0, 1);
+  const quality = clamp(0.82 - contest * 0.48 - range * 0.22 - halfCourtPenalty * 0.55, 0, 1);
+  const made = quality > 0.72 || (quality > 0.48 && Math.random() < quality * 0.42);
+  const missSide = (Math.random() - 0.5) * (114 - quality * 70);
+  const missDepth = (Math.random() - 0.5) * (82 - quality * 48);
+  const target = made
+    ? { x: court.hoop.x + (Math.random() - 0.5) * 9, y: court.hoop.y + (Math.random() - 0.5) * 7 }
+    : { x: court.hoop.x + missDepth, y: court.hoop.y + missSide };
+
+  state.ball = {
+    owner: "cpu",
+    startX: defender.x,
+    startY: defender.y - 7,
+    x: defender.x,
+    y: defender.y - 7,
+    targetX: target.x,
+    targetY: target.y,
+    t: 0,
+    duration: 0.74 + range * 0.18,
+    made,
+    quality,
+    source: "cpu",
+    points: isThreePoint(defender) ? 3 : 2,
+    scored: false,
+  };
+  state.cpuShotTimer = 0;
+  showMessage(quality > 0.68 ? "CPU shot" : "Contested");
 }
 
 function handleJoystickDown(event) {
@@ -400,21 +448,11 @@ function update(dt) {
   player.stamina = clamp(player.stamina + (dash && moving ? -0.55 : 0.34) * step, 0, 1);
   player.cooldown = Math.max(0, player.cooldown - step);
 
-  const guardPressure = state.timingActive ? 1.5 + settings.defense * 1.45 + Math.min(1.75, state.timingHold * 0.58) : 1.05 + settings.defense * 0.62;
-  const guardSpot = {
-    x: player.x + clamp(court.hoop.x - player.x, -48, 48),
-    y: player.y + clamp(court.hoop.y - player.y, -42, 42),
-  };
-  const chase = distance(player, defender) > 56 ? 1.12 : 0.7;
-  const defenderSpeed = 3.8 + settings.defense * 4.6;
-  defender.vx += (guardSpot.x - defender.x) * defenderSpeed * step * chase * guardPressure;
-  defender.vy += (guardSpot.y - defender.y) * defenderSpeed * step * chase * guardPressure;
-  defender.vx *= 0.92;
-  defender.vy *= 0.92;
-  defender.x += defender.vx * step;
-  defender.y += defender.vy * step;
-  defender.x = clamp(defender.x, 130, court.w - 130);
-  defender.y = clamp(defender.y, 92, court.h - 92);
+  if (state.possession === "player") {
+    updateCpuDefense(step);
+  } else {
+    updateCpuOffense(step);
+  }
 
   if (state.timingActive) {
     state.timingHold += dt;
@@ -434,6 +472,58 @@ function update(dt) {
   updateBall(step);
   updateParticles(step);
   updateHud();
+}
+
+function updateCpuDefense(step) {
+  const guardPressure = state.timingActive ? 1.5 + settings.defense * 1.45 + Math.min(1.75, state.timingHold * 0.58) : 1.05 + settings.defense * 0.62;
+  const guardSpot = {
+    x: player.x + clamp(court.hoop.x - player.x, -48, 48),
+    y: player.y + clamp(court.hoop.y - player.y, -42, 42),
+  };
+  const chase = distance(player, defender) > 56 ? 1.12 : 0.7;
+  const defenderSpeed = 3.8 + settings.defense * 4.6;
+  defender.vx += (guardSpot.x - defender.x) * defenderSpeed * step * chase * guardPressure;
+  defender.vy += (guardSpot.y - defender.y) * defenderSpeed * step * chase * guardPressure;
+  moveDefender(step);
+}
+
+function updateCpuOffense(step) {
+  if (state.ball) return;
+  state.cpuShotTimer -= step;
+  state.cpuDrivePhase += step * 2.4;
+
+  const space = distance(defender, player);
+  const rimVector = {
+    x: court.hoop.x - defender.x,
+    y: court.hoop.y - defender.y,
+  };
+  const rimLength = Math.max(1, Math.hypot(rimVector.x, rimVector.y));
+  const side = Math.sin(state.cpuDrivePhase);
+  const target = {
+    x: defender.x + (rimVector.x / rimLength) * 92 - (rimVector.y / rimLength) * side * 58,
+    y: defender.y + (rimVector.y / rimLength) * 92 + (rimVector.x / rimLength) * side * 58,
+  };
+
+  if (space < 92) {
+    target.x += (defender.x - player.x) * 0.9;
+    target.y += (defender.y - player.y) * 0.9;
+  }
+
+  defender.vx += (target.x - defender.x) * 5.2 * step;
+  defender.vy += (target.y - defender.y) * 5.2 * step;
+  moveDefender(step);
+
+  const shotReady = state.cpuShotTimer <= 0 && (space > 78 || distance(defender, court.hoop) < 285);
+  if (shotReady) launchCpuShot();
+}
+
+function moveDefender(step) {
+  defender.vx *= 0.92;
+  defender.vy *= 0.92;
+  defender.x += defender.vx * step;
+  defender.y += defender.vy * step;
+  defender.x = clamp(defender.x, 130, court.w - 130);
+  defender.y = clamp(defender.y, 92, court.h - 92);
 }
 
 function updateTimingZone() {
@@ -539,17 +629,22 @@ function updateBall(dt) {
   if (t >= 1 && !b.scored) {
     b.scored = true;
     if (b.made) {
-      state.playerScore += b.points;
-      playerScoreEl.textContent = state.playerScore;
+      if (b.owner === "player") {
+        state.playerScore += b.points;
+        playerScoreEl.textContent = state.playerScore;
+      } else {
+        state.cpuScore += b.points;
+        cpuScoreEl.textContent = state.cpuScore;
+      }
       state.shake = 8;
       addBurst(court.hoop.x, court.hoop.y, "#99d6c2", 26);
-      showMessage(b.points === 3 ? "Three ball" : b.quality > 0.86 ? "Perfect release" : "Bucket");
-      resetPossession(true);
+      showMessage(b.owner === "player" ? (b.points === 3 ? "Three ball" : b.quality > 0.86 ? "Perfect release" : "Bucket") : "CPU scores");
+      setPossession(b.owner === "player" ? "cpu" : "player");
     } else {
       state.shake = 4;
       addBurst(b.targetX, b.targetY, "#d9572f", 12);
-      showMessage(b.quality > 0.58 ? "Rim out" : "Off balance");
-      setTimeout(() => resetPossession(false), 420);
+      showMessage(b.owner === "player" ? (b.quality > 0.58 ? "Rim out" : "Off balance") : "Stop");
+      setTimeout(() => setPossession(b.owner === "player" ? "cpu" : "player"), 420);
     }
   }
 }
@@ -572,6 +667,10 @@ function updateParticles(dt) {
 function updateHud() {
   const space = distance(player, defender);
   spaceReadout.textContent = space > 132 ? "Open" : space > 86 ? "Tight" : "Smothered";
+  if (state.possession === "cpu") {
+    shotReadout.textContent = state.ball ? "Box out" : "Defend";
+    return;
+  }
   if (state.timingActive) {
     shotReadout.textContent = `Green ${Math.round(state.timingZone.size * 100)}%`;
     return;
@@ -688,7 +787,8 @@ function drawCharacter(p, isPlayer) {
   ctx.fill();
   ctx.restore();
 
-  if (isPlayer && !state.ball) {
+  const hasLiveBall = !state.ball && ((isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu"));
+  if (hasLiveBall) {
     ctx.fillStyle = "#c96536";
     ctx.beginPath();
     ctx.arc(p.x + 18, p.y - 18, 10, 0, Math.PI * 2);

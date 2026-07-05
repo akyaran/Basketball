@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.3.2`
+Version: `0.4.0`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -28,6 +28,7 @@ http://localhost:4173/
 - Settings: tune defense effect, distance effect, and meter speed before starting
 - HOME: return to the title screen during play
 - Reset Defaults: restore the tuning sliders to their default values
+- After a player make or miss, possession switches to CPU offense and the player defends.
 
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 
