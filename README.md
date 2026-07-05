@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.4.0`
+Version: `0.5.0`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -29,6 +29,7 @@ http://localhost:4173/
 - HOME: return to the title screen during play
 - Reset Defaults: restore the tuning sliders to their default values
 - After a player make or miss, possession switches to CPU offense and the player defends.
+- Generated court, hoop, player, and CPU sprites are used in-game, with fallback canvas drawing while assets load.
 
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 

@@ -362,10 +362,21 @@ button {
 }
 
 .title-panel h1 {
-  margin: 0 0 24px;
+  margin: 0;
   color: #f7f1e3;
   font-size: 48px;
   line-height: 1;
+}
+
+.title-version {
+  display: inline-block;
+  margin: 10px 0 24px;
+  padding: 5px 8px;
+  border: 1px solid rgba(247, 241, 227, 0.14);
+  border-radius: 6px;
+  color: rgba(247, 241, 227, 0.64);
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .title-actions {

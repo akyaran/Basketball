@@ -25,12 +25,13 @@ const sweet = document.querySelector(".sweet");
 const needle = document.getElementById("needle");
 const toast = document.getElementById("toast");
 const versionBadge = document.getElementById("versionBadge");
+const titleVersion = document.getElementById("titleVersion");
 const shotReadout = document.getElementById("shotReadout");
 const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.5.0";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -94,6 +95,25 @@ const court = {
 };
 
 versionBadge.textContent = `v${APP_VERSION}`;
+if (titleVersion) titleVersion.textContent = `v${APP_VERSION}`;
+
+function loadImage(src) {
+  const image = new Image();
+  image.src = src;
+  return image;
+}
+
+function imageReady(image) {
+  return image.complete && image.naturalWidth > 0;
+}
+
+const assets = {
+  court: loadImage("assets/court.png"),
+  hoop: loadImage("assets/hoop.png"),
+  playerBall: loadImage("assets/player.png"),
+  playerDefense: loadImage("assets/player-defense.png"),
+  cpu: loadImage("assets/cpu.png"),
+};
 
 const player = {
   x: 335,
@@ -688,16 +708,20 @@ function drawCourt() {
   ctx.translate(court.x + shakeX, court.y + shakeY);
   ctx.scale(s, s);
 
-  ctx.fillStyle = "#b57745";
-  roundRect(0, 0, court.w, court.h, 26);
-  ctx.fill();
+  if (imageReady(assets.court)) {
+    ctx.drawImage(assets.court, 0, 0, court.w, court.h);
+  } else {
+    ctx.fillStyle = "#b57745";
+    roundRect(0, 0, court.w, court.h, 26);
+    ctx.fill();
 
-  ctx.fillStyle = "#cf965d";
-  for (let i = 0; i < 18; i += 1) {
-    ctx.fillRect(i * 64 - 16, 0, 30, court.h);
+    ctx.fillStyle = "#cf965d";
+    for (let i = 0; i < 18; i += 1) {
+      ctx.fillRect(i * 64 - 16, 0, 30, court.h);
+    }
   }
 
-  ctx.strokeStyle = "rgba(255,255,255,0.82)";
+  ctx.strokeStyle = "rgba(255,255,255,0.72)";
   ctx.lineWidth = 5;
   ctx.strokeRect(54, 54, court.w - 108, court.h - 108);
   ctx.beginPath();
@@ -746,6 +770,13 @@ function drawThreePointLine() {
 }
 
 function drawHoop() {
+  if (imageReady(assets.hoop)) {
+    const hoopW = 150;
+    const hoopH = 206;
+    ctx.drawImage(assets.hoop, court.hoop.x - 58, court.hoop.y - 103, hoopW, hoopH);
+    return;
+  }
+
   ctx.fillStyle = "#20262b";
   roundRect(court.hoop.x + 64, court.hoop.y - 58, 16, 116, 5);
   ctx.fill();
@@ -771,6 +802,26 @@ function drawPlayerShadow(p) {
 
 function drawCharacter(p, isPlayer) {
   const angle = Math.atan2(court.hoop.y - p.y, court.hoop.x - p.x);
+  const isBallCarrier = !state.ball && ((isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu"));
+  const sprite = isPlayer
+    ? (isBallCarrier ? assets.playerBall : assets.playerDefense)
+    : assets.cpu;
+
+  if (imageReady(sprite)) {
+    const targetW = isPlayer ? (isBallCarrier ? 78 : 74) : 86;
+    const aspect = sprite.naturalHeight / sprite.naturalWidth;
+    const targetH = targetW * aspect;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(angle);
+    ctx.drawImage(sprite, -targetW * 0.5, -targetH * 0.5, targetW, targetH);
+    ctx.restore();
+
+    if (isBallCarrier && !isPlayer) drawCarriedBall(p);
+    return;
+  }
+
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.rotate(angle);
@@ -789,19 +840,23 @@ function drawCharacter(p, isPlayer) {
 
   const hasLiveBall = !state.ball && ((isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu"));
   if (hasLiveBall) {
-    ctx.fillStyle = "#c96536";
-    ctx.beginPath();
-    ctx.arc(p.x + 18, p.y - 18, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(23, 19, 11, 0.32)";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(p.x + 8, p.y - 18);
-    ctx.lineTo(p.x + 28, p.y - 18);
-    ctx.moveTo(p.x + 18, p.y - 28);
-    ctx.lineTo(p.x + 18, p.y - 8);
-    ctx.stroke();
+    drawCarriedBall(p);
   }
+}
+
+function drawCarriedBall(p) {
+  ctx.fillStyle = "#c96536";
+  ctx.beginPath();
+  ctx.arc(p.x + 18, p.y - 18, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(23, 19, 11, 0.32)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(p.x + 8, p.y - 18);
+  ctx.lineTo(p.x + 28, p.y - 18);
+  ctx.moveTo(p.x + 18, p.y - 28);
+  ctx.lineTo(p.x + 18, p.y - 8);
+  ctx.stroke();
 }
 
 function drawAimPreview() {
