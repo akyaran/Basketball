@@ -56,7 +56,42 @@
       </div>
 
       <div id="toast" class="toast">Ready</div>
-      <div id="versionBadge" class="version-badge">v0.2.3</div>
+      <div id="versionBadge" class="version-badge">v0.3.0</div>
+
+      <section id="titleScreen" class="title-screen" aria-label="タイトル">
+        <div class="title-panel">
+          <p class="kicker">1v1 Prototype</p>
+          <h1>Basketball</h1>
+          <div class="title-actions">
+            <button id="startButton" class="primary-button" type="button">START</button>
+            <button id="settingsButton" class="secondary-button" type="button">SETTINGS</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="settingsPanel" class="settings-panel" aria-label="設定" hidden>
+        <div class="settings-sheet">
+          <div class="settings-head">
+            <h2>Settings</h2>
+            <button id="closeSettingsButton" class="close-button" type="button" aria-label="閉じる">x</button>
+          </div>
+          <label class="slider-row">
+            <span>Defense effect</span>
+            <strong id="defenseValue">65%</strong>
+            <input id="defenseSlider" type="range" min="0" max="100" value="65" />
+          </label>
+          <label class="slider-row">
+            <span>Distance effect</span>
+            <strong id="distanceValue">65%</strong>
+            <input id="distanceSlider" type="range" min="0" max="100" value="65" />
+          </label>
+          <label class="slider-row">
+            <span>Meter speed</span>
+            <strong id="meterSpeedValue">70%</strong>
+            <input id="meterSpeedSlider" type="range" min="0" max="100" value="70" />
+          </label>
+        </div>
+      </section>
     </main>
 
     <script src="app.js"></script>

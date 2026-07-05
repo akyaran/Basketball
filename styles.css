@@ -317,6 +317,123 @@ button {
   backdrop-filter: blur(10px);
 }
 
+.title-screen,
+.settings-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+  background: rgba(10, 14, 17, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.title-screen[hidden],
+.settings-panel[hidden] {
+  display: none;
+}
+
+.title-panel,
+.settings-sheet {
+  width: min(520px, calc(100vw - 32px));
+  border: 1px solid rgba(247, 241, 227, 0.18);
+  border-radius: 8px;
+  background: rgba(15, 20, 25, 0.84);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.44);
+}
+
+.title-panel {
+  padding: 28px;
+  text-align: center;
+}
+
+.kicker {
+  margin: 0 0 8px;
+  color: #99d6c2;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.title-panel h1 {
+  margin: 0 0 24px;
+  color: #f7f1e3;
+  font-size: 48px;
+  line-height: 1;
+}
+
+.title-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.primary-button,
+.secondary-button,
+.close-button {
+  min-height: 52px;
+  border-radius: 8px;
+  font-weight: 1000;
+}
+
+.primary-button {
+  background: #f5bf45;
+  color: #17130b;
+}
+
+.secondary-button,
+.close-button {
+  border: 1px solid rgba(247, 241, 227, 0.18);
+  background: rgba(247, 241, 227, 0.08);
+  color: #f7f1e3;
+}
+
+.settings-sheet {
+  padding: 20px;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.settings-head h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.close-button {
+  width: 44px;
+  min-height: 44px;
+}
+
+.slider-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 14px;
+  padding: 14px 0;
+  border-top: 1px solid rgba(247, 241, 227, 0.1);
+}
+
+.slider-row span,
+.slider-row strong {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.slider-row span {
+  color: rgba(247, 241, 227, 0.78);
+}
+
+.slider-row input {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: #f5bf45;
+}
+
 @media (max-width: 740px) {
   .top-hud {
     align-items: start;
@@ -368,5 +485,13 @@ button {
 
   .version-badge {
     top: calc(max(12px, env(safe-area-inset-top)) + 52px);
+  }
+
+  .title-panel h1 {
+    font-size: 36px;
+  }
+
+  .title-actions {
+    grid-template-columns: 1fr;
   }
 }

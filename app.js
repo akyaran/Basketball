@@ -7,6 +7,17 @@ const dashButton = document.getElementById("dashButton");
 const aimModeButton = document.getElementById("aimMode");
 const timingModeButton = document.getElementById("timingMode");
 const slowToggle = document.getElementById("slowToggle");
+const titleScreen = document.getElementById("titleScreen");
+const settingsPanel = document.getElementById("settingsPanel");
+const startButton = document.getElementById("startButton");
+const settingsButton = document.getElementById("settingsButton");
+const closeSettingsButton = document.getElementById("closeSettingsButton");
+const defenseSlider = document.getElementById("defenseSlider");
+const distanceSlider = document.getElementById("distanceSlider");
+const meterSpeedSlider = document.getElementById("meterSpeedSlider");
+const defenseValue = document.getElementById("defenseValue");
+const distanceValue = document.getElementById("distanceValue");
+const meterSpeedValue = document.getElementById("meterSpeedValue");
 const meter = document.getElementById("meter");
 const sweet = document.querySelector(".sweet");
 const needle = document.getElementById("needle");
@@ -17,7 +28,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.2.3";
+const APP_VERSION = "0.3.0";
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
 const input = {
@@ -36,6 +47,7 @@ const state = {
   w: 0,
   h: 0,
   scale: 1,
+  started: false,
   mode: "timing",
   time: 0,
   last: performance.now(),
@@ -57,6 +69,12 @@ const state = {
   aimVector: { x: 0, y: -1 },
   particles: [],
   ball: null,
+};
+
+const settings = {
+  defense: 0.65,
+  distance: 0.65,
+  meterSpeed: 0.7,
 };
 
 const court = {
@@ -183,6 +201,7 @@ function addBurst(x, y, color, count = 16) {
 }
 
 function startShot(pointer) {
+  if (!state.started) return;
   if (state.ball || player.cooldown > 0) return;
   input.shootingId = pointer.pointerId;
   input.shotStartX = pointer.clientX;
@@ -256,7 +275,10 @@ function launchShot(skill, source) {
   const smother = clamp((58 - defenderDistance) / 24, 0, 1);
   const range = clamp((shotDistance - 150) / 520, 0, 1);
   const halfCourtPenalty = clamp((court.hoop.x - player.x - court.w / 2) / 170, 0, 1);
-  const quality = clamp(skill - contest * 0.62 - smother * 0.56 - range * 0.25 - halfCourtPenalty * 0.58 - 0.02, 0, 1);
+  const defenseEffect = 0.25 + settings.defense * 0.58;
+  const distanceEffect = 0.08 + settings.distance * 0.3;
+  const halfCourtEffect = 0.18 + settings.distance * 0.62;
+  const quality = clamp(skill - contest * defenseEffect - smother * defenseEffect * 0.9 - range * distanceEffect - halfCourtPenalty * halfCourtEffect + 0.02, 0, 1);
   const made =
     smother < 0.92 &&
     halfCourtPenalty < 0.94 &&
@@ -320,6 +342,10 @@ function releaseJoystick(event) {
 }
 
 function update(dt) {
+  if (!state.started) {
+    updateParticles(dt);
+    return;
+  }
   const slow = state.slowEnabled && (state.slowUntil > state.time || state.timingActive) ? 0.44 : 1;
   const step = dt * slow;
   state.time += dt * 1000;
@@ -338,14 +364,15 @@ function update(dt) {
   player.stamina = clamp(player.stamina + (dash && moving ? -0.55 : 0.34) * step, 0, 1);
   player.cooldown = Math.max(0, player.cooldown - step);
 
-  const guardPressure = state.timingActive ? 2.45 + Math.min(1.75, state.timingHold * 0.58) : 1.45;
+  const guardPressure = state.timingActive ? 1.5 + settings.defense * 1.45 + Math.min(1.75, state.timingHold * 0.58) : 1.05 + settings.defense * 0.62;
   const guardSpot = {
     x: player.x + clamp(court.hoop.x - player.x, -48, 48),
     y: player.y + clamp(court.hoop.y - player.y, -42, 42),
   };
   const chase = distance(player, defender) > 56 ? 1.12 : 0.7;
-  defender.vx += (guardSpot.x - defender.x) * 6.8 * step * chase * guardPressure;
-  defender.vy += (guardSpot.y - defender.y) * 6.8 * step * chase * guardPressure;
+  const defenderSpeed = 3.8 + settings.defense * 4.6;
+  defender.vx += (guardSpot.x - defender.x) * defenderSpeed * step * chase * guardPressure;
+  defender.vy += (guardSpot.y - defender.y) * defenderSpeed * step * chase * guardPressure;
   defender.vx *= 0.92;
   defender.vy *= 0.92;
   defender.x += defender.vx * step;
@@ -355,7 +382,7 @@ function update(dt) {
 
   if (state.timingActive) {
     state.timingHold += dt;
-    state.timingValue += state.timingDir * step * 4.1;
+    state.timingValue += state.timingDir * step * (1.4 + settings.meterSpeed * 3.9);
     if (state.timingValue > 1) {
       state.timingValue = 1;
       state.timingDir = -1;
@@ -386,11 +413,11 @@ function updateTimingZone() {
   const baseSize = 0.34;
   const size = clamp(
     baseSize -
-      rangePressure * 0.27 -
-      deepRangePressure * 0.17 -
-      halfCourtPressure * 0.28 -
-      contestPressure * 0.28 -
-      smotherPressure * 0.22 -
+      rangePressure * (0.08 + settings.distance * 0.28) -
+      deepRangePressure * (0.04 + settings.distance * 0.18) -
+      halfCourtPressure * (0.08 + settings.distance * 0.32) -
+      contestPressure * (0.08 + settings.defense * 0.31) -
+      smotherPressure * (0.05 + settings.defense * 0.25) -
       patiencePressure * 0.12,
     0.012,
     baseSize
@@ -405,6 +432,33 @@ function updateTimingZone() {
 
 function getContestPressure() {
   return clamp(1 - (distance(player, defender) - 42) / 190, 0, 1);
+}
+
+function syncSettings() {
+  settings.defense = Number(defenseSlider.value) / 100;
+  settings.distance = Number(distanceSlider.value) / 100;
+  settings.meterSpeed = Number(meterSpeedSlider.value) / 100;
+  defenseValue.textContent = `${defenseSlider.value}%`;
+  distanceValue.textContent = `${distanceSlider.value}%`;
+  meterSpeedValue.textContent = `${meterSpeedSlider.value}%`;
+  if (state.timingActive) updateTimingZone();
+}
+
+function startGame() {
+  state.started = true;
+  titleScreen.hidden = true;
+  settingsPanel.hidden = true;
+  state.last = performance.now();
+  resetPossession(true);
+  showMessage("Check ball");
+}
+
+function openSettings() {
+  settingsPanel.hidden = false;
+}
+
+function closeSettings() {
+  settingsPanel.hidden = true;
 }
 
 function isThreePoint(p) {
@@ -720,6 +774,15 @@ dashButton.addEventListener("selectstart", (event) => event.preventDefault());
 aimModeButton.addEventListener("click", () => setMode("aim"));
 timingModeButton.addEventListener("click", () => setMode("timing"));
 slowToggle.addEventListener("click", () => setSlowEnabled(!state.slowEnabled));
+startButton.addEventListener("click", startGame);
+settingsButton.addEventListener("click", openSettings);
+closeSettingsButton.addEventListener("click", closeSettings);
+settingsPanel.addEventListener("click", (event) => {
+  if (event.target === settingsPanel) closeSettings();
+});
+defenseSlider.addEventListener("input", syncSettings);
+distanceSlider.addEventListener("input", syncSettings);
+meterSpeedSlider.addEventListener("input", syncSettings);
 
 window.addEventListener("keydown", (event) => {
   keys.add(event.code);
@@ -739,6 +802,6 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+syncSettings();
 resize();
-showMessage("1v1 prototype");
 requestAnimationFrame(loop);
