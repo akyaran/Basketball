@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#0f1419" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Basketball 1v1 Prototype</title>
+    <link rel="manifest" href="manifest.json" />
+    <link rel="apple-touch-icon" href="icons/icon-192.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <canvas id="game" aria-label="1対1バスケットボールゲーム"></canvas>
+
+      <section class="hud top-hud" aria-label="ゲーム情報">
+        <div class="score">
+          <span id="playerScore">0</span>
+          <small>YOU</small>
+          <span class="dash">-</span>
+          <small>CPU</small>
+          <span id="cpuScore">0</span>
+        </div>
+        <div class="mode-switch" role="group" aria-label="シュート方式">
+          <button id="aimMode" class="active" type="button">AIM</button>
+          <button id="timingMode" type="button">TIMING</button>
+        </div>
+        <button id="slowToggle" class="slow-toggle active" type="button" aria-pressed="true">SLOW ON</button>
+      </section>
+
+      <section class="hud side-hud" aria-label="状態">
+        <div>
+          <small>SHOT</small>
+          <strong id="shotReadout">Hold</strong>
+        </div>
+        <div>
+          <small>SPACE</small>
+          <strong id="spaceReadout">Open</strong>
+        </div>
+      </section>
+
+      <div id="joystick" class="joystick" aria-hidden="true">
+        <div id="stick" class="stick"></div>
+      </div>
+
+      <div class="action-pad" aria-label="アクション">
+        <button id="dashButton" class="icon-button" type="button" aria-label="ダッシュ">↯</button>
+        <button id="shootButton" class="shoot-button" type="button" aria-label="シュート">SHOT</button>
+      </div>
+
+      <div id="meter" class="meter" aria-hidden="true">
+        <div class="sweet"></div>
+        <div id="needle" class="needle"></div>
+      </div>
+
+      <div id="toast" class="toast">Ready</div>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
