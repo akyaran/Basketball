@@ -17,7 +17,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.2.1";
+const APP_VERSION = "0.2.2";
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
 const input = {
@@ -250,10 +250,17 @@ function shootTiming() {
 }
 
 function launchShot(skill, source) {
-  const contest = clamp(1 - distance(player, defender) / 150, 0, 1);
-  const range = clamp(distance(player, court.hoop) / 520, 0, 1);
-  const quality = clamp(skill - contest * 0.32 - range * 0.12 + 0.1, 0, 1);
-  const made = quality > 0.73 || (quality > 0.48 && Math.random() < quality * 0.58);
+  const shotDistance = distance(player, court.hoop);
+  const defenderDistance = distance(player, defender);
+  const contest = getContestPressure();
+  const smother = clamp((58 - defenderDistance) / 24, 0, 1);
+  const range = clamp((shotDistance - 150) / 520, 0, 1);
+  const halfCourtPenalty = clamp((court.hoop.x - player.x - court.w / 2) / 170, 0, 1);
+  const quality = clamp(skill - contest * 0.52 - smother * 0.45 - range * 0.18 - halfCourtPenalty * 0.48 + 0.08, 0, 1);
+  const made =
+    smother < 0.92 &&
+    halfCourtPenalty < 0.94 &&
+    (quality > 0.82 || (quality > 0.56 && Math.random() < quality * 0.42));
   const missSide = (Math.random() - 0.5) * (110 - quality * 72);
   const missDepth = (Math.random() - 0.5) * (78 - quality * 48);
   const target = made
@@ -369,15 +376,23 @@ function update(dt) {
 function updateTimingZone() {
   const meterH = Math.max(1, meter.clientHeight);
   const shotDistance = distance(player, court.hoop);
-  const rangePressure = clamp((shotDistance - 120) / 520, 0, 1);
-  const deepRangePressure = clamp((shotDistance - 330) / 260, 0, 1);
+  const rangePressure = clamp((shotDistance - 120) / 470, 0, 1);
+  const deepRangePressure = clamp((shotDistance - 300) / 230, 0, 1);
+  const halfCourtPressure = clamp((court.hoop.x - player.x - court.w / 2) / 180, 0, 1);
   const liveContestPressure = getContestPressure();
   const contestPressure = Math.max(state.timingStartContest, liveContestPressure);
+  const smotherPressure = clamp((58 - distance(player, defender)) / 24, 0, 1);
   const patiencePressure = clamp(state.timingHold / 2.4, 0, 1);
-  const baseSize = 0.38;
+  const baseSize = 0.4;
   const size = clamp(
-    baseSize - rangePressure * 0.2 - deepRangePressure * 0.11 - contestPressure * 0.16 - patiencePressure * 0.09,
-    0.045,
+    baseSize -
+      rangePressure * 0.24 -
+      deepRangePressure * 0.14 -
+      halfCourtPressure * 0.24 -
+      contestPressure * 0.23 -
+      smotherPressure * 0.18 -
+      patiencePressure * 0.1,
+    0.018,
     baseSize
   );
   const center = 0.5;
@@ -389,7 +404,7 @@ function updateTimingZone() {
 }
 
 function getContestPressure() {
-  return clamp(1 - distance(player, defender) / 210, 0, 1);
+  return clamp(1 - (distance(player, defender) - 42) / 190, 0, 1);
 }
 
 function isThreePoint(p) {
