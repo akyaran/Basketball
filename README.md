@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.2.0`
+Version: `0.2.1`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -26,7 +26,7 @@ http://localhost:4173/
 - SHOT in AIM mode: hold, pull to aim and set power, release
 - SLOW ON/OFF: toggles shot slow motion for A/B testing
 
-The timing green zone shrinks when the shot is farther from the rim, when the defender is closer, and while the player waits with the shot held.
+The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 
 ## GitHub Pages
 

@@ -17,7 +17,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.2.1";
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
 const input = {
@@ -51,6 +51,7 @@ const state = {
   timingValue: 0,
   timingDir: 1,
   timingHold: 0,
+  timingStartContest: 0,
   timingZone: { start: 0.38, end: 0.62, center: 0.5, size: 0.24 },
   shotCharge: 0,
   aimVector: { x: 0, y: -1 },
@@ -194,6 +195,7 @@ function startShot(pointer) {
     state.timingValue = 0;
     state.timingDir = 1;
     state.timingHold = 0;
+    state.timingStartContest = getContestPressure();
     updateTimingZone();
     meter.classList.add("show");
   }
@@ -329,16 +331,16 @@ function update(dt) {
   player.stamina = clamp(player.stamina + (dash && moving ? -0.55 : 0.34) * step, 0, 1);
   player.cooldown = Math.max(0, player.cooldown - step);
 
-  const guardPressure = state.timingActive ? 1.45 + Math.min(0.9, state.timingHold * 0.28) : 1;
+  const guardPressure = state.timingActive ? 1.9 + Math.min(1.25, state.timingHold * 0.42) : 1.18;
   const guardSpot = {
     x: player.x + clamp(court.hoop.x - player.x, -92, 92),
     y: player.y + clamp(court.hoop.y - player.y, -76, 76),
   };
   const chase = distance(player, defender) > 82 ? 1 : 0.45;
-  defender.vx += (guardSpot.x - defender.x) * 3.2 * step * chase * guardPressure;
-  defender.vy += (guardSpot.y - defender.y) * 3.2 * step * chase * guardPressure;
-  defender.vx *= 0.86;
-  defender.vy *= 0.86;
+  defender.vx += (guardSpot.x - defender.x) * 4.75 * step * chase * guardPressure;
+  defender.vy += (guardSpot.y - defender.y) * 4.75 * step * chase * guardPressure;
+  defender.vx *= 0.9;
+  defender.vy *= 0.9;
   defender.x += defender.vx * step;
   defender.y += defender.vy * step;
   defender.x = clamp(defender.x, 130, court.w - 130);
@@ -346,7 +348,7 @@ function update(dt) {
 
   if (state.timingActive) {
     state.timingHold += dt;
-    state.timingValue += state.timingDir * step * 1.28;
+    state.timingValue += state.timingDir * step * 2.05;
     if (state.timingValue > 1) {
       state.timingValue = 1;
       state.timingDir = -1;
@@ -366,17 +368,28 @@ function update(dt) {
 
 function updateTimingZone() {
   const meterH = Math.max(1, meter.clientHeight);
-  const rangePressure = clamp((distance(player, court.hoop) - 150) / 470, 0, 1);
-  const contestPressure = clamp(1 - distance(player, defender) / 175, 0, 1);
-  const patiencePressure = clamp(state.timingHold / 2.8, 0, 1);
-  const baseSize = 0.34;
-  const size = clamp(baseSize - rangePressure * 0.12 - contestPressure * 0.11 - patiencePressure * 0.08, 0.075, baseSize);
+  const shotDistance = distance(player, court.hoop);
+  const rangePressure = clamp((shotDistance - 120) / 520, 0, 1);
+  const deepRangePressure = clamp((shotDistance - 330) / 260, 0, 1);
+  const liveContestPressure = getContestPressure();
+  const contestPressure = Math.max(state.timingStartContest, liveContestPressure);
+  const patiencePressure = clamp(state.timingHold / 2.4, 0, 1);
+  const baseSize = 0.38;
+  const size = clamp(
+    baseSize - rangePressure * 0.2 - deepRangePressure * 0.11 - contestPressure * 0.16 - patiencePressure * 0.09,
+    0.045,
+    baseSize
+  );
   const center = 0.5;
   const start = center - size / 2;
   const end = center + size / 2;
   state.timingZone = { start, end, center, size };
   sweet.style.top = `${start * meterH}px`;
   sweet.style.height = `${size * meterH}px`;
+}
+
+function getContestPressure() {
+  return clamp(1 - distance(player, defender) / 210, 0, 1);
 }
 
 function isThreePoint(p) {
