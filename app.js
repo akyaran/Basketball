@@ -17,7 +17,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.2.2";
+const APP_VERSION = "0.2.3";
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
 const input = {
@@ -256,11 +256,11 @@ function launchShot(skill, source) {
   const smother = clamp((58 - defenderDistance) / 24, 0, 1);
   const range = clamp((shotDistance - 150) / 520, 0, 1);
   const halfCourtPenalty = clamp((court.hoop.x - player.x - court.w / 2) / 170, 0, 1);
-  const quality = clamp(skill - contest * 0.52 - smother * 0.45 - range * 0.18 - halfCourtPenalty * 0.48 + 0.08, 0, 1);
+  const quality = clamp(skill - contest * 0.62 - smother * 0.56 - range * 0.25 - halfCourtPenalty * 0.58 - 0.02, 0, 1);
   const made =
     smother < 0.92 &&
     halfCourtPenalty < 0.94 &&
-    (quality > 0.82 || (quality > 0.56 && Math.random() < quality * 0.42));
+    (quality > 0.88 || (quality > 0.62 && Math.random() < quality * 0.28));
   const missSide = (Math.random() - 0.5) * (110 - quality * 72);
   const missDepth = (Math.random() - 0.5) * (78 - quality * 48);
   const target = made
@@ -338,16 +338,16 @@ function update(dt) {
   player.stamina = clamp(player.stamina + (dash && moving ? -0.55 : 0.34) * step, 0, 1);
   player.cooldown = Math.max(0, player.cooldown - step);
 
-  const guardPressure = state.timingActive ? 1.9 + Math.min(1.25, state.timingHold * 0.42) : 1.18;
+  const guardPressure = state.timingActive ? 2.45 + Math.min(1.75, state.timingHold * 0.58) : 1.45;
   const guardSpot = {
-    x: player.x + clamp(court.hoop.x - player.x, -92, 92),
-    y: player.y + clamp(court.hoop.y - player.y, -76, 76),
+    x: player.x + clamp(court.hoop.x - player.x, -48, 48),
+    y: player.y + clamp(court.hoop.y - player.y, -42, 42),
   };
-  const chase = distance(player, defender) > 82 ? 1 : 0.45;
-  defender.vx += (guardSpot.x - defender.x) * 4.75 * step * chase * guardPressure;
-  defender.vy += (guardSpot.y - defender.y) * 4.75 * step * chase * guardPressure;
-  defender.vx *= 0.9;
-  defender.vy *= 0.9;
+  const chase = distance(player, defender) > 56 ? 1.12 : 0.7;
+  defender.vx += (guardSpot.x - defender.x) * 6.8 * step * chase * guardPressure;
+  defender.vy += (guardSpot.y - defender.y) * 6.8 * step * chase * guardPressure;
+  defender.vx *= 0.92;
+  defender.vy *= 0.92;
   defender.x += defender.vx * step;
   defender.y += defender.vy * step;
   defender.x = clamp(defender.x, 130, court.w - 130);
@@ -355,7 +355,7 @@ function update(dt) {
 
   if (state.timingActive) {
     state.timingHold += dt;
-    state.timingValue += state.timingDir * step * 2.05;
+    state.timingValue += state.timingDir * step * 4.1;
     if (state.timingValue > 1) {
       state.timingValue = 1;
       state.timingDir = -1;
@@ -383,16 +383,16 @@ function updateTimingZone() {
   const contestPressure = Math.max(state.timingStartContest, liveContestPressure);
   const smotherPressure = clamp((58 - distance(player, defender)) / 24, 0, 1);
   const patiencePressure = clamp(state.timingHold / 2.4, 0, 1);
-  const baseSize = 0.4;
+  const baseSize = 0.34;
   const size = clamp(
     baseSize -
-      rangePressure * 0.24 -
-      deepRangePressure * 0.14 -
-      halfCourtPressure * 0.24 -
-      contestPressure * 0.23 -
-      smotherPressure * 0.18 -
-      patiencePressure * 0.1,
-    0.018,
+      rangePressure * 0.27 -
+      deepRangePressure * 0.17 -
+      halfCourtPressure * 0.28 -
+      contestPressure * 0.28 -
+      smotherPressure * 0.22 -
+      patiencePressure * 0.12,
+    0.012,
     baseSize
   );
   const center = 0.5;
@@ -683,22 +683,39 @@ joystick.addEventListener("pointerup", releaseJoystick);
 joystick.addEventListener("pointercancel", releaseJoystick);
 
 shootButton.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
   shootButton.setPointerCapture(event.pointerId);
   startShot(event);
 });
-shootButton.addEventListener("pointermove", updateShotDrag);
-shootButton.addEventListener("pointerup", releaseShot);
-shootButton.addEventListener("pointercancel", releaseShot);
+shootButton.addEventListener("pointermove", (event) => {
+  event.preventDefault();
+  updateShotDrag(event);
+});
+shootButton.addEventListener("pointerup", (event) => {
+  event.preventDefault();
+  releaseShot(event);
+});
+shootButton.addEventListener("pointercancel", (event) => {
+  event.preventDefault();
+  releaseShot(event);
+});
+shootButton.addEventListener("contextmenu", (event) => event.preventDefault());
+shootButton.addEventListener("selectstart", (event) => event.preventDefault());
 
-dashButton.addEventListener("pointerdown", () => {
+dashButton.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
   input.dash = true;
 });
-dashButton.addEventListener("pointerup", () => {
+dashButton.addEventListener("pointerup", (event) => {
+  event.preventDefault();
   input.dash = false;
 });
-dashButton.addEventListener("pointercancel", () => {
+dashButton.addEventListener("pointercancel", (event) => {
+  event.preventDefault();
   input.dash = false;
 });
+dashButton.addEventListener("contextmenu", (event) => event.preventDefault());
+dashButton.addEventListener("selectstart", (event) => event.preventDefault());
 
 aimModeButton.addEventListener("click", () => setMode("aim"));
 timingModeButton.addEventListener("click", () => setMode("timing"));
