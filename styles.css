@@ -250,11 +250,12 @@ button {
   position: absolute;
   left: 6px;
   right: 6px;
-  top: 72px;
-  height: 30px;
+  top: 76px;
+  height: 44px;
   border-radius: 4px;
   background: #99d6c2;
   box-shadow: 0 0 18px rgba(153, 214, 194, 0.62);
+  transition: top 80ms linear, height 80ms linear;
 }
 
 .needle {
@@ -292,6 +293,22 @@ button {
 .toast.show {
   opacity: 1;
   transform: translate(-50%, 0);
+}
+
+.version-badge {
+  position: fixed;
+  z-index: 2;
+  right: max(14px, env(safe-area-inset-right));
+  top: calc(max(12px, env(safe-area-inset-top)) + 62px);
+  padding: 5px 8px;
+  border: 1px solid rgba(247, 241, 227, 0.12);
+  border-radius: 6px;
+  background: rgba(15, 20, 25, 0.52);
+  color: rgba(247, 241, 227, 0.58);
+  font-size: 11px;
+  font-weight: 800;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
 }
 
 @media (max-width: 740px) {
@@ -341,5 +358,9 @@ button {
 
   .sweet {
     top: 58px;
+  }
+
+  .version-badge {
+    top: calc(max(12px, env(safe-area-inset-top)) + 52px);
   }
 }

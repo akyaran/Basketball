@@ -8,13 +8,16 @@ const aimModeButton = document.getElementById("aimMode");
 const timingModeButton = document.getElementById("timingMode");
 const slowToggle = document.getElementById("slowToggle");
 const meter = document.getElementById("meter");
+const sweet = document.querySelector(".sweet");
 const needle = document.getElementById("needle");
 const toast = document.getElementById("toast");
+const versionBadge = document.getElementById("versionBadge");
 const shotReadout = document.getElementById("shotReadout");
 const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
+const APP_VERSION = "0.2.0";
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
 const input = {
@@ -33,7 +36,7 @@ const state = {
   w: 0,
   h: 0,
   scale: 1,
-  mode: "aim",
+  mode: "timing",
   time: 0,
   last: performance.now(),
   slowEnabled: true,
@@ -47,6 +50,8 @@ const state = {
   timingActive: false,
   timingValue: 0,
   timingDir: 1,
+  timingHold: 0,
+  timingZone: { start: 0.38, end: 0.62, center: 0.5, size: 0.24 },
   shotCharge: 0,
   aimVector: { x: 0, y: -1 },
   particles: [],
@@ -59,7 +64,11 @@ const court = {
   w: 1000,
   h: 620,
   hoop: { x: 830, y: 310 },
+  threeRadius: 300,
+  threeCornerY: 230,
 };
+
+versionBadge.textContent = `v${APP_VERSION}`;
 
 const player = {
   x: 335,
@@ -152,6 +161,7 @@ function resetPossession(scoredByPlayer) {
   state.possession = "player";
   state.shotCharge = 0;
   state.timingActive = false;
+  state.timingHold = 0;
   meter.classList.remove("show");
 }
 
@@ -183,6 +193,8 @@ function startShot(pointer) {
     state.timingActive = true;
     state.timingValue = 0;
     state.timingDir = 1;
+    state.timingHold = 0;
+    updateTimingZone();
     meter.classList.add("show");
   }
 }
@@ -222,9 +234,15 @@ function shootAim() {
 }
 
 function shootTiming() {
-  const timingFit = 1 - clamp(Math.abs(state.timingValue - 0.44) / 0.44, 0, 1);
-  const rhythmBonus = state.timingValue > 0.36 && state.timingValue < 0.53 ? 0.22 : 0;
+  updateTimingZone();
+  const zone = state.timingZone;
+  const half = zone.size / 2;
+  const error = Math.abs(state.timingValue - zone.center);
+  const inside = state.timingValue >= zone.start && state.timingValue <= zone.end;
+  const timingFit = inside ? 1 : 1 - clamp((error - half) / 0.28, 0, 1);
+  const rhythmBonus = inside ? 0.18 : 0;
   state.timingActive = false;
+  state.timingHold = 0;
   meter.classList.remove("show");
   launchShot(clamp(timingFit + rhythmBonus, 0, 1), "timing");
 }
@@ -252,6 +270,7 @@ function launchShot(skill, source) {
     made,
     quality,
     source,
+    points: isThreePoint(player) ? 3 : 2,
     scored: false,
   };
   state.shotCharge = 0;
@@ -310,13 +329,14 @@ function update(dt) {
   player.stamina = clamp(player.stamina + (dash && moving ? -0.55 : 0.34) * step, 0, 1);
   player.cooldown = Math.max(0, player.cooldown - step);
 
+  const guardPressure = state.timingActive ? 1.45 + Math.min(0.9, state.timingHold * 0.28) : 1;
   const guardSpot = {
     x: player.x + clamp(court.hoop.x - player.x, -92, 92),
     y: player.y + clamp(court.hoop.y - player.y, -76, 76),
   };
   const chase = distance(player, defender) > 82 ? 1 : 0.45;
-  defender.vx += (guardSpot.x - defender.x) * 3.2 * step * chase;
-  defender.vy += (guardSpot.y - defender.y) * 3.2 * step * chase;
+  defender.vx += (guardSpot.x - defender.x) * 3.2 * step * chase * guardPressure;
+  defender.vy += (guardSpot.y - defender.y) * 3.2 * step * chase * guardPressure;
   defender.vx *= 0.86;
   defender.vy *= 0.86;
   defender.x += defender.vx * step;
@@ -325,6 +345,7 @@ function update(dt) {
   defender.y = clamp(defender.y, 92, court.h - 92);
 
   if (state.timingActive) {
+    state.timingHold += dt;
     state.timingValue += state.timingDir * step * 1.28;
     if (state.timingValue > 1) {
       state.timingValue = 1;
@@ -334,12 +355,37 @@ function update(dt) {
       state.timingDir = 1;
     }
     needle.style.top = `${state.timingValue * (meter.clientHeight - 5)}px`;
+    updateTimingZone();
     state.shotCharge = state.timingValue;
   }
 
   updateBall(step);
   updateParticles(step);
   updateHud();
+}
+
+function updateTimingZone() {
+  const meterH = Math.max(1, meter.clientHeight);
+  const rangePressure = clamp((distance(player, court.hoop) - 150) / 470, 0, 1);
+  const contestPressure = clamp(1 - distance(player, defender) / 175, 0, 1);
+  const patiencePressure = clamp(state.timingHold / 2.8, 0, 1);
+  const baseSize = 0.34;
+  const size = clamp(baseSize - rangePressure * 0.12 - contestPressure * 0.11 - patiencePressure * 0.08, 0.075, baseSize);
+  const center = 0.5;
+  const start = center - size / 2;
+  const end = center + size / 2;
+  state.timingZone = { start, end, center, size };
+  sweet.style.top = `${start * meterH}px`;
+  sweet.style.height = `${size * meterH}px`;
+}
+
+function isThreePoint(p) {
+  const angle = Math.asin(court.threeCornerY / court.threeRadius);
+  const cornerX = court.hoop.x + Math.cos(Math.PI + angle) * court.threeRadius;
+  const dx = p.x - court.hoop.x;
+  const dy = Math.abs(p.y - court.hoop.y);
+  if (dy > court.threeCornerY) return p.x < cornerX;
+  return Math.hypot(dx, p.y - court.hoop.y) > court.threeRadius;
 }
 
 function updateBall(dt) {
@@ -354,11 +400,11 @@ function updateBall(dt) {
   if (t >= 1 && !b.scored) {
     b.scored = true;
     if (b.made) {
-      state.playerScore += distance(player, court.hoop) > 440 ? 3 : 2;
+      state.playerScore += b.points;
       playerScoreEl.textContent = state.playerScore;
       state.shake = 8;
       addBurst(court.hoop.x, court.hoop.y, "#99d6c2", 26);
-      showMessage(b.quality > 0.86 ? "Perfect release" : "Bucket");
+      showMessage(b.points === 3 ? "Three ball" : b.quality > 0.86 ? "Perfect release" : "Bucket");
       resetPossession(true);
     } else {
       state.shake = 4;
@@ -387,6 +433,10 @@ function updateParticles(dt) {
 function updateHud() {
   const space = distance(player, defender);
   spaceReadout.textContent = space > 132 ? "Open" : space > 86 ? "Tight" : "Smothered";
+  if (state.timingActive) {
+    shotReadout.textContent = `Green ${Math.round(state.timingZone.size * 100)}%`;
+    return;
+  }
   if (!input.shootingId && !state.timingActive && player.cooldown <= 0) {
     shotReadout.textContent = state.mode === "aim" ? "Hold" : "Tap-hold";
   }
@@ -419,6 +469,7 @@ function drawCourt() {
   ctx.beginPath();
   ctx.arc(court.hoop.x, court.hoop.y, 168, Math.PI * 0.5, Math.PI * 1.5, true);
   ctx.stroke();
+  drawThreePointLine();
   ctx.strokeRect(court.hoop.x, court.hoop.y - 98, 118, 196);
   ctx.beginPath();
   ctx.arc(court.hoop.x, court.hoop.y, 58, 0, Math.PI * 2);
@@ -433,6 +484,26 @@ function drawCourt() {
   drawBall();
   drawParticles();
 
+  ctx.restore();
+}
+
+function drawThreePointLine() {
+  const r = court.threeRadius;
+  const cornerY = court.threeCornerY;
+  const angle = Math.asin(cornerY / r);
+  const topY = court.hoop.y - cornerY;
+  const bottomY = court.hoop.y + cornerY;
+  const cornerX = court.hoop.x + Math.cos(Math.PI + angle) * r;
+
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.88)";
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(court.w - 54, topY);
+  ctx.lineTo(cornerX, topY);
+  ctx.arc(court.hoop.x, court.hoop.y, r, Math.PI + angle, Math.PI - angle, true);
+  ctx.lineTo(court.w - 54, bottomY);
+  ctx.stroke();
   ctx.restore();
 }
 
