@@ -28,7 +28,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.3.0";
+const APP_VERSION = "0.3.1";
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
 const input = {
@@ -251,7 +251,7 @@ function shootAim() {
   const perfect = { x: hoopVector.x / hoopLength, y: hoopVector.y / hoopLength };
   const angleFit = (state.aimVector.x * perfect.x + state.aimVector.y * perfect.y + 1) / 2;
   const distanceFit = 1 - clamp(Math.abs(0.68 - state.shotCharge) / 0.68, 0, 1);
-  launchShot(angleFit * 0.62 + distanceFit * 0.38, "aim");
+  launchShot(angleFit * 0.62 + distanceFit * 0.38, "aim", false);
 }
 
 function shootTiming() {
@@ -265,10 +265,10 @@ function shootTiming() {
   state.timingActive = false;
   state.timingHold = 0;
   meter.classList.remove("show");
-  launchShot(clamp(timingFit + rhythmBonus, 0, 1), "timing");
+  launchShot(clamp(timingFit + rhythmBonus, 0, 1), "timing", inside);
 }
 
-function launchShot(skill, source) {
+function launchShot(skill, source, perfectTiming) {
   const shotDistance = distance(player, court.hoop);
   const defenderDistance = distance(player, defender);
   const contest = getContestPressure();
@@ -279,10 +279,10 @@ function launchShot(skill, source) {
   const distanceEffect = 0.08 + settings.distance * 0.3;
   const halfCourtEffect = 0.18 + settings.distance * 0.62;
   const quality = clamp(skill - contest * defenseEffect - smother * defenseEffect * 0.9 - range * distanceEffect - halfCourtPenalty * halfCourtEffect + 0.02, 0, 1);
-  const made =
-    smother < 0.92 &&
-    halfCourtPenalty < 0.94 &&
-    (quality > 0.88 || (quality > 0.62 && Math.random() < quality * 0.28));
+  const blocked = smother >= 0.92 || halfCourtPenalty >= 0.94;
+  const made = perfectTiming
+    ? !blocked
+    : !blocked && (quality > 0.88 || (quality > 0.62 && Math.random() < quality * 0.28));
   const missSide = (Math.random() - 0.5) * (110 - quality * 72);
   const missDepth = (Math.random() - 0.5) * (78 - quality * 48);
   const target = made
@@ -301,13 +301,14 @@ function launchShot(skill, source) {
     made,
     quality,
     source,
+    perfectTiming,
     points: isThreePoint(player) ? 3 : 2,
     scored: false,
   };
   state.shotCharge = 0;
   player.cooldown = 0.7;
   state.slowUntil = state.time + 360;
-  shotReadout.textContent = quality > 0.8 ? "Clean" : quality > 0.58 ? "Good" : "Tough";
+  shotReadout.textContent = perfectTiming ? "Green" : quality > 0.8 ? "Clean" : quality > 0.58 ? "Good" : "Tough";
 }
 
 function handleJoystickDown(event) {

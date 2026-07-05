@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.3.0`
+Version: `0.3.1`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -30,6 +30,8 @@ http://localhost:4173/
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 
 At near body-contact range the contest almost removes the make window, and shots beyond half court are tuned to be extremely difficult.
+
+In timing mode, releasing inside the green zone is treated as a made shot unless the attempt is fully smothered or an extreme half-court attempt.
 
 Touch controls suppress text selection and long-press browser actions so the shot and dash buttons behave like game controls.
 
