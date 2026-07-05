@@ -107,7 +107,8 @@ button {
   backdrop-filter: blur(12px);
 }
 
-.slow-toggle {
+.slow-toggle,
+.home-button {
   min-width: 104px;
   min-height: 48px;
   padding: 0 12px;
@@ -119,6 +120,11 @@ button {
   font-weight: 900;
   pointer-events: auto;
   backdrop-filter: blur(12px);
+}
+
+.home-button {
+  min-width: 78px;
+  color: rgba(247, 241, 227, 0.74);
 }
 
 .slow-toggle.active {
@@ -370,7 +376,8 @@ button {
 
 .primary-button,
 .secondary-button,
-.close-button {
+.close-button,
+.reset-button {
   min-height: 52px;
   border-radius: 8px;
   font-weight: 1000;
@@ -382,7 +389,8 @@ button {
 }
 
 .secondary-button,
-.close-button {
+.close-button,
+.reset-button {
   border: 1px solid rgba(247, 241, 227, 0.18);
   background: rgba(247, 241, 227, 0.08);
   color: #f7f1e3;
@@ -434,6 +442,12 @@ button {
   accent-color: #f5bf45;
 }
 
+.reset-button {
+  width: 100%;
+  margin-top: 14px;
+  color: #f5bf45;
+}
+
 @media (max-width: 740px) {
   .top-hud {
     align-items: start;
@@ -449,6 +463,12 @@ button {
 
   .slow-toggle {
     min-width: 82px;
+    min-height: 40px;
+    font-size: 11px;
+  }
+
+  .home-button {
+    min-width: 68px;
     min-height: 40px;
     font-size: 11px;
   }

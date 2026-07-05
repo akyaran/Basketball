@@ -27,7 +27,8 @@
           <button id="aimMode" type="button">AIM</button>
           <button id="timingMode" class="active" type="button">TIMING</button>
         </div>
-        <button id="slowToggle" class="slow-toggle active" type="button" aria-pressed="true">SLOW ON</button>
+        <button id="homeButton" class="home-button" type="button">HOME</button>
+        <button id="slowToggle" class="slow-toggle" type="button" aria-pressed="false">SLOW OFF</button>
       </section>
 
       <section class="hud side-hud" aria-label="状態">
@@ -56,7 +57,7 @@
       </div>
 
       <div id="toast" class="toast">Ready</div>
-      <div id="versionBadge" class="version-badge">v0.3.1</div>
+      <div id="versionBadge" class="version-badge">v0.3.2</div>
 
       <section id="titleScreen" class="title-screen" aria-label="タイトル">
         <div class="title-panel">
@@ -90,6 +91,7 @@
             <strong id="meterSpeedValue">70%</strong>
             <input id="meterSpeedSlider" type="range" min="0" max="100" value="70" />
           </label>
+          <button id="resetSettingsButton" class="reset-button" type="button">RESET DEFAULTS</button>
         </div>
       </section>
     </main>

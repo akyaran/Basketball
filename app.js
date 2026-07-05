@@ -7,11 +7,13 @@ const dashButton = document.getElementById("dashButton");
 const aimModeButton = document.getElementById("aimMode");
 const timingModeButton = document.getElementById("timingMode");
 const slowToggle = document.getElementById("slowToggle");
+const homeButton = document.getElementById("homeButton");
 const titleScreen = document.getElementById("titleScreen");
 const settingsPanel = document.getElementById("settingsPanel");
 const startButton = document.getElementById("startButton");
 const settingsButton = document.getElementById("settingsButton");
 const closeSettingsButton = document.getElementById("closeSettingsButton");
+const resetSettingsButton = document.getElementById("resetSettingsButton");
 const defenseSlider = document.getElementById("defenseSlider");
 const distanceSlider = document.getElementById("distanceSlider");
 const meterSpeedSlider = document.getElementById("meterSpeedSlider");
@@ -28,7 +30,13 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.3.1";
+const APP_VERSION = "0.3.2";
+const SETTINGS_KEY = "basketball-1v1-settings";
+const DEFAULT_SETTINGS = {
+  defense: 0.65,
+  distance: 0.65,
+  meterSpeed: 0.7,
+};
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
 const input = {
@@ -51,7 +59,7 @@ const state = {
   mode: "timing",
   time: 0,
   last: performance.now(),
-  slowEnabled: true,
+  slowEnabled: false,
   slowUntil: 0,
   shake: 0,
   playerScore: 0,
@@ -71,11 +79,7 @@ const state = {
   ball: null,
 };
 
-const settings = {
-  defense: 0.65,
-  distance: 0.65,
-  meterSpeed: 0.7,
-};
+const settings = { ...DEFAULT_SETTINGS };
 
 const court = {
   x: 0,
@@ -163,12 +167,43 @@ function setMode(mode) {
   showMessage(mode === "aim" ? "AIM: hold, pull, release" : "TIMING: release in the green");
 }
 
-function setSlowEnabled(enabled) {
+function setSlowEnabled(enabled, announce = true) {
   state.slowEnabled = enabled;
   slowToggle.classList.toggle("active", enabled);
   slowToggle.textContent = enabled ? "SLOW ON" : "SLOW OFF";
   slowToggle.setAttribute("aria-pressed", String(enabled));
-  showMessage(enabled ? "Slow motion on" : "Slow motion off");
+  if (announce) showMessage(enabled ? "Slow motion on" : "Slow motion off");
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+  } catch (error) {
+    // Ignore storage failures so private browsing does not break gameplay.
+  }
+}
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
+    if (!saved) return;
+    settings.defense = readSetting(saved.defense, DEFAULT_SETTINGS.defense);
+    settings.distance = readSetting(saved.distance, DEFAULT_SETTINGS.distance);
+    settings.meterSpeed = readSetting(saved.meterSpeed, DEFAULT_SETTINGS.meterSpeed);
+  } catch (error) {
+    Object.assign(settings, DEFAULT_SETTINGS);
+  }
+}
+
+function readSetting(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? clamp(parsed, 0, 1) : fallback;
+}
+
+function applySettingsToControls() {
+  defenseSlider.value = Math.round(settings.defense * 100);
+  distanceSlider.value = Math.round(settings.distance * 100);
+  meterSpeedSlider.value = Math.round(settings.meterSpeed * 100);
 }
 
 function resetPossession(scoredByPlayer) {
@@ -443,6 +478,7 @@ function syncSettings() {
   distanceValue.textContent = `${distanceSlider.value}%`;
   meterSpeedValue.textContent = `${meterSpeedSlider.value}%`;
   if (state.timingActive) updateTimingZone();
+  saveSettings();
 }
 
 function startGame() {
@@ -454,12 +490,32 @@ function startGame() {
   showMessage("Check ball");
 }
 
+function returnToTitle() {
+  state.started = false;
+  state.ball = null;
+  state.timingActive = false;
+  state.timingHold = 0;
+  input.shootingId = null;
+  input.dash = false;
+  meter.classList.remove("show");
+  titleScreen.hidden = false;
+  settingsPanel.hidden = true;
+  toast.classList.remove("show");
+}
+
 function openSettings() {
   settingsPanel.hidden = false;
 }
 
 function closeSettings() {
   settingsPanel.hidden = true;
+}
+
+function resetSettings() {
+  Object.assign(settings, DEFAULT_SETTINGS);
+  applySettingsToControls();
+  syncSettings();
+  showMessage("Settings reset");
 }
 
 function isThreePoint(p) {
@@ -775,9 +831,11 @@ dashButton.addEventListener("selectstart", (event) => event.preventDefault());
 aimModeButton.addEventListener("click", () => setMode("aim"));
 timingModeButton.addEventListener("click", () => setMode("timing"));
 slowToggle.addEventListener("click", () => setSlowEnabled(!state.slowEnabled));
+homeButton.addEventListener("click", returnToTitle);
 startButton.addEventListener("click", startGame);
 settingsButton.addEventListener("click", openSettings);
 closeSettingsButton.addEventListener("click", closeSettings);
+resetSettingsButton.addEventListener("click", resetSettings);
 settingsPanel.addEventListener("click", (event) => {
   if (event.target === settingsPanel) closeSettings();
 });
@@ -803,6 +861,9 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+loadSettings();
+applySettingsToControls();
 syncSettings();
+setSlowEnabled(false, false);
 resize();
 requestAnimationFrame(loop);
