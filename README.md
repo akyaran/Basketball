@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.5.3`
+Version: `0.5.4`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -33,6 +33,8 @@ http://localhost:4173/
 - The court image is generated from the same game coordinates used for 2P/3P scoring, so the visible 3P line matches the scoring boundary.
 - Player and CPU sprites use the same base artwork, with the player recolored to yellow and the ball drawn only while possessed.
 - Defenders face the ball or ball handler, while the offensive player faces the hoop.
+- CPU offense uses crossovers, hesitations, bursts, drives, and close-range finishes.
+- Near the rim, push the stick toward the hoop and press SHOT with enough space to trigger a layup or dunk.
 
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 

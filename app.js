@@ -31,7 +31,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.5.3";
+const APP_VERSION = "0.5.4";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -68,6 +68,9 @@ const state = {
   possession: "player",
   cpuShotTimer: 0,
   cpuDrivePhase: 0,
+  cpuMoveTimer: 0,
+  cpuMoveStyle: "probe",
+  cpuBurst: 1,
   possessionTransition: null,
   recoveryBall: null,
   messageTimer: 0,
@@ -240,6 +243,9 @@ function setPossession(possession) {
   state.recoveryBall = null;
   state.cpuShotTimer = possession === "cpu" ? 1.35 : 0;
   state.cpuDrivePhase = Math.random() * Math.PI * 2;
+  state.cpuMoveTimer = 0;
+  state.cpuMoveStyle = "probe";
+  state.cpuBurst = 1;
   player.x = possession === "player" ? 340 : 515;
   player.y = 310;
   defender.x = possession === "player" ? 555 : 350;
@@ -339,6 +345,13 @@ function startShot(pointer) {
   if (state.possessionTransition) return;
   if (state.possession !== "player") return;
   if (state.ball || player.cooldown > 0) return;
+
+  const finish = getFinishOpportunity(player, defender, getPlayerMoveVector());
+  if (finish.available) {
+    launchFinish("player", finish.kind, finish.quality);
+    return;
+  }
+
   input.shootingId = pointer.pointerId;
   input.shotStartX = pointer.clientX;
   input.shotStartY = pointer.clientY;
@@ -446,6 +459,85 @@ function launchShot(skill, source, perfectTiming) {
   player.cooldown = 0.7;
   state.slowUntil = state.time + 360;
   shotReadout.textContent = perfectTiming ? "Green" : quality > 0.8 ? "Clean" : quality > 0.58 ? "Good" : "Tough";
+}
+
+function getPlayerMoveVector() {
+  const keyX = (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0);
+  const keyY = (keys.has("ArrowDown") || keys.has("KeyS") ? 1 : 0) - (keys.has("ArrowUp") || keys.has("KeyW") ? 1 : 0);
+  const x = input.moveX || keyX;
+  const y = input.moveY || keyY;
+  const length = Math.hypot(x, y);
+  return {
+    x: length ? x / length : 0,
+    y: length ? y / length : 0,
+    strength: Math.min(1, length),
+  };
+}
+
+function getFinishOpportunity(offense, defense, moveVector) {
+  const rimVector = {
+    x: court.hoop.x - offense.x,
+    y: court.hoop.y - offense.y,
+  };
+  const rimDistance = Math.hypot(rimVector.x, rimVector.y);
+  const rimDir = {
+    x: rimVector.x / Math.max(1, rimDistance),
+    y: rimVector.y / Math.max(1, rimDistance),
+  };
+  const driveDot = moveVector.x * rimDir.x + moveVector.y * rimDir.y;
+  const space = distance(offense, defense);
+  const hasLane = space > 76;
+  const committed = moveVector.strength > 0.42 && driveDot > 0.35;
+  const close = rimDistance < 154;
+  const kind = rimDistance < 106 && space > 96 ? "dunk" : "layup";
+  const quality = clamp(0.72 + (154 - rimDistance) / 170 + (space - 76) / 160 + driveDot * 0.18, 0, 1);
+
+  return {
+    available: close && hasLane && committed,
+    kind,
+    quality,
+    rimDistance,
+    space,
+  };
+}
+
+function launchFinish(owner, kind, quality) {
+  const offense = owner === "player" ? player : defender;
+  const defense = owner === "player" ? defender : player;
+  const contest = clamp(1 - (distance(offense, defense) - 48) / 88, 0, 1);
+  const made = kind === "dunk"
+    ? contest < 0.82 && quality > 0.72
+    : quality - contest * 0.38 > 0.58;
+  const missSide = (Math.random() - 0.5) * 52;
+  const target = made
+    ? { x: court.hoop.x + (Math.random() - 0.5) * 6, y: court.hoop.y + (Math.random() - 0.5) * 6 }
+    : { x: court.hoop.x - 22 + (Math.random() - 0.5) * 22, y: court.hoop.y + missSide };
+
+  state.ball = {
+    owner,
+    startX: offense.x + 10,
+    startY: offense.y - 10,
+    x: offense.x + 10,
+    y: offense.y - 10,
+    targetX: target.x,
+    targetY: target.y,
+    t: 0,
+    duration: kind === "dunk" ? 0.42 : 0.58,
+    made,
+    quality,
+    source: kind,
+    finish: kind,
+    perfectTiming: made,
+    points: 2,
+    scored: false,
+  };
+  offense.cooldown = 0.72;
+  state.shotCharge = 0;
+  state.timingActive = false;
+  state.timingHold = 0;
+  meter.classList.remove("show");
+  state.slowUntil = state.time + (kind === "dunk" ? 460 : 280);
+  showMessage(owner === "player" ? (kind === "dunk" ? "Dunk" : "Layup") : (kind === "dunk" ? "CPU dunk" : "CPU layup"));
 }
 
 function launchCpuShot() {
@@ -585,30 +677,63 @@ function updateCpuDefense(step) {
 function updateCpuOffense(step) {
   if (state.ball) return;
   state.cpuShotTimer -= step;
-  state.cpuDrivePhase += step * 2.4;
+  state.cpuMoveTimer -= step;
+  state.cpuDrivePhase += step * (2.2 + state.cpuBurst * 1.15);
 
   const space = distance(defender, player);
+  const rimDistance = distance(defender, court.hoop);
   const rimVector = {
     x: court.hoop.x - defender.x,
     y: court.hoop.y - defender.y,
   };
   const rimLength = Math.max(1, Math.hypot(rimVector.x, rimVector.y));
-  const side = Math.sin(state.cpuDrivePhase);
-  const target = {
-    x: defender.x + (rimVector.x / rimLength) * 92 - (rimVector.y / rimLength) * side * 58,
-    y: defender.y + (rimVector.y / rimLength) * 92 + (rimVector.x / rimLength) * side * 58,
-  };
+  const rimDir = { x: rimVector.x / rimLength, y: rimVector.y / rimLength };
+  const sideDir = { x: -rimDir.y, y: rimDir.x };
 
-  if (space < 92) {
-    target.x += (defender.x - player.x) * 0.9;
-    target.y += (defender.y - player.y) * 0.9;
+  if (state.cpuMoveTimer <= 0) {
+    const laneOpen = space > 96 || rimDistance < 180;
+    const roll = Math.random();
+    state.cpuMoveStyle = laneOpen && roll > 0.35
+      ? "drive"
+      : roll > 0.68
+        ? "stepback"
+        : roll > 0.38
+          ? "crossover"
+          : "hesitate";
+    state.cpuMoveTimer = 0.42 + Math.random() * 0.58;
+    state.cpuBurst = state.cpuMoveStyle === "drive" ? 1.55 : state.cpuMoveStyle === "hesitate" ? 0.42 : 1.05;
   }
 
-  defender.vx += (target.x - defender.x) * 5.2 * step;
-  defender.vy += (target.y - defender.y) * 5.2 * step;
+  const side = Math.sin(state.cpuDrivePhase) + Math.sin(state.cpuDrivePhase * 1.9) * 0.34;
+  const shake = state.cpuMoveStyle === "crossover" ? 110 : state.cpuMoveStyle === "hesitate" ? 46 : 70;
+  const push = state.cpuMoveStyle === "stepback" ? -58 : state.cpuMoveStyle === "drive" ? 128 : 74;
+  const target = {
+    x: defender.x + rimDir.x * push + sideDir.x * side * shake,
+    y: defender.y + rimDir.y * push + sideDir.y * side * shake,
+  };
+
+  if (space < 86 && state.cpuMoveStyle !== "drive") {
+    target.x += (defender.x - player.x) * 0.82;
+    target.y += (defender.y - player.y) * 0.82;
+  } else if (space > 112 && rimDistance > 150) {
+    target.x += rimDir.x * 48;
+    target.y += rimDir.y * 48;
+  }
+
+  const tempoPulse = 0.74 + Math.max(0, Math.sin(state.cpuDrivePhase * 1.35)) * 0.55;
+  const cpuSpeed = (4.8 + settings.defense * 1.2) * state.cpuBurst * tempoPulse;
+  defender.vx += (target.x - defender.x) * cpuSpeed * step;
+  defender.vy += (target.y - defender.y) * cpuSpeed * step;
   moveDefender(step);
 
-  const shotReady = state.cpuShotTimer <= 0 && (space > 78 || distance(defender, court.hoop) < 285);
+  const finish = getFinishOpportunity(defender, player, { ...rimDir, strength: state.cpuMoveStyle === "drive" ? 1 : 0.72 });
+  if (finish.available && (finish.quality > 0.76 || state.cpuMoveStyle === "drive")) {
+    launchFinish("cpu", finish.kind, finish.quality);
+    state.cpuShotTimer = 1.3;
+    return;
+  }
+
+  const shotReady = state.cpuShotTimer <= 0 && state.cpuMoveStyle !== "hesitate" && (space > 92 || rimDistance < 245);
   if (shotReady) launchCpuShot();
 }
 
@@ -735,7 +860,7 @@ function updateBall(dt) {
       }
       state.shake = 8;
       addBurst(court.hoop.x, court.hoop.y, "#99d6c2", 26);
-      showMessage(b.owner === "player" ? (b.points === 3 ? "Three ball" : b.quality > 0.86 ? "Perfect release" : "Bucket") : "CPU scores");
+      showMessage(getScoreMessage(b));
       beginPossessionTransition(b.owner === "player" ? "cpu" : "player", court.hoop.x, court.hoop.y);
     } else {
       state.shake = 4;
@@ -744,6 +869,14 @@ function updateBall(dt) {
       beginPossessionTransition(b.owner === "player" ? "cpu" : "player", b.targetX, b.targetY);
     }
   }
+}
+
+function getScoreMessage(b) {
+  if (b.finish === "dunk") return b.owner === "player" ? "Dunk" : "CPU dunk";
+  if (b.finish === "layup") return b.owner === "player" ? "Layup" : "CPU layup";
+  if (b.owner === "cpu") return "CPU scores";
+  if (b.points === 3) return "Three ball";
+  return b.quality > 0.86 ? "Perfect release" : "Bucket";
 }
 
 function updateParticles(dt) {
@@ -774,6 +907,11 @@ function updateHud() {
   }
   if (state.timingActive) {
     shotReadout.textContent = `Green ${Math.round(state.timingZone.size * 100)}%`;
+    return;
+  }
+  const finish = getFinishOpportunity(player, defender, getPlayerMoveVector());
+  if (finish.available) {
+    shotReadout.textContent = finish.kind === "dunk" ? "Dunk" : "Layup";
     return;
   }
   if (!input.shootingId && !state.timingActive && player.cooldown <= 0) {
@@ -979,7 +1117,8 @@ function drawBall() {
   if (!state.ball) return;
   const b = state.ball;
   const t = clamp(b.t, 0, 1);
-  const arc = Math.sin(t * Math.PI) * 128;
+  const arcHeight = b.finish === "dunk" ? 58 : b.finish === "layup" ? 88 : 128;
+  const arc = Math.sin(t * Math.PI) * arcHeight;
   const radius = 10 + arc * 0.018;
   ctx.fillStyle = "rgba(0,0,0,0.2)";
   ctx.beginPath();
