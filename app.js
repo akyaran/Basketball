@@ -31,7 +31,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.5.2";
+const APP_VERSION = "0.5.3";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -92,8 +92,8 @@ const court = {
   w: 1000,
   h: 620,
   hoop: { x: 830, y: 310 },
-  threeRadius: 300,
-  threeCornerY: 230,
+  threeRadius: 265,
+  threeCornerY: 210,
 };
 
 versionBadge.textContent = `v${APP_VERSION}`;
@@ -826,10 +826,10 @@ function drawFallbackCourt() {
   ctx.lineTo(court.w / 2, court.h - 54);
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(court.hoop.x, court.hoop.y, 168, Math.PI * 0.5, Math.PI * 1.5, true);
+  ctx.arc(710, court.hoop.y, 82, Math.PI * 0.5, Math.PI * 1.5, false);
   ctx.stroke();
   drawThreePointLine();
-  ctx.strokeRect(court.hoop.x, court.hoop.y - 98, 118, 196);
+  ctx.strokeRect(710, court.hoop.y - 98, 236, 196);
   ctx.beginPath();
   ctx.arc(court.hoop.x, court.hoop.y, 58, 0, Math.PI * 2);
   ctx.stroke();
@@ -887,7 +887,8 @@ function drawPlayerShadow(p) {
 }
 
 function drawCharacter(p, isPlayer) {
-  const angle = Math.atan2(court.hoop.y - p.y, court.hoop.x - p.x);
+  const target = getCharacterFacingTarget(p, isPlayer);
+  const angle = Math.atan2(target.y - p.y, target.x - p.x);
   const isBallCarrier = !state.possessionTransition && !state.ball && ((isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu"));
   const sprite = isPlayer
     ? (isBallCarrier ? assets.playerBall : assets.playerDefense)
@@ -929,6 +930,20 @@ function drawCharacter(p, isPlayer) {
   if (hasLiveBall) {
     drawCarriedBall(p);
   }
+}
+
+function getCharacterFacingTarget(p, isPlayer) {
+  if (state.ball) {
+    const isShooter = (isPlayer && state.ball.owner === "player") || (!isPlayer && state.ball.owner === "cpu");
+    return isShooter ? court.hoop : state.ball;
+  }
+
+  if (state.recoveryBall) return state.recoveryBall;
+
+  const isOffense = (isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu");
+  if (isOffense) return court.hoop;
+
+  return isPlayer ? defender : player;
 }
 
 function drawCarriedBall(p) {
