@@ -31,7 +31,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.5.1";
+const APP_VERSION = "0.5.2";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -901,11 +901,11 @@ function drawCharacter(p, isPlayer) {
 
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.rotate(angle + Math.PI / 2);
+    ctx.rotate(angle - Math.PI / 2);
     ctx.drawImage(sprite, -targetW * 0.5, -targetH * 0.5, targetW, targetH);
     ctx.restore();
 
-    if (isBallCarrier && !isPlayer) drawCarriedBall(p);
+    if (isBallCarrier) drawCarriedBall(p);
     return;
   }
 
