@@ -31,7 +31,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.5.0";
+const APP_VERSION = "0.5.1";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -68,6 +68,8 @@ const state = {
   possession: "player",
   cpuShotTimer: 0,
   cpuDrivePhase: 0,
+  possessionTransition: null,
+  recoveryBall: null,
   messageTimer: 0,
   message: "Ready",
   timingActive: false,
@@ -234,6 +236,8 @@ function resetPossession(scoredByPlayer) {
 
 function setPossession(possession) {
   state.possession = possession;
+  state.possessionTransition = null;
+  state.recoveryBall = null;
   state.cpuShotTimer = possession === "cpu" ? 1.35 : 0;
   state.cpuDrivePhase = Math.random() * Math.PI * 2;
   player.x = possession === "player" ? 340 : 515;
@@ -249,6 +253,69 @@ function setPossession(possession) {
   state.timingActive = false;
   state.timingHold = 0;
   meter.classList.remove("show");
+}
+
+function beginPossessionTransition(nextPossession, ballX, ballY) {
+  const duration = 1.35;
+  const nextPlayer = {
+    x: nextPossession === "player" ? 340 : 515,
+    y: 310,
+  };
+  const nextDefender = {
+    x: nextPossession === "player" ? 555 : 350,
+    y: 310,
+  };
+  const receiver = nextPossession === "player" ? nextPlayer : nextDefender;
+
+  state.possessionTransition = {
+    nextPossession,
+    elapsed: 0,
+    duration,
+    playerStart: { x: player.x, y: player.y },
+    playerEnd: nextPlayer,
+    defenderStart: { x: defender.x, y: defender.y },
+    defenderEnd: nextDefender,
+    ballStart: { x: ballX, y: ballY },
+    ballEnd: { x: receiver.x + 18, y: receiver.y - 18 },
+  };
+  state.recoveryBall = { x: ballX, y: ballY };
+  state.ball = null;
+  state.shotCharge = 0;
+  state.timingActive = false;
+  state.timingHold = 0;
+  input.shootingId = null;
+  meter.classList.remove("show");
+}
+
+function updatePossessionTransition(step) {
+  const transition = state.possessionTransition;
+  if (!transition) return false;
+
+  transition.elapsed += step;
+  const t = clamp(transition.elapsed / transition.duration, 0, 1);
+  const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+  player.x = transition.playerStart.x + (transition.playerEnd.x - transition.playerStart.x) * ease;
+  player.y = transition.playerStart.y + (transition.playerEnd.y - transition.playerStart.y) * ease;
+  defender.x = transition.defenderStart.x + (transition.defenderEnd.x - transition.defenderStart.x) * ease;
+  defender.y = transition.defenderStart.y + (transition.defenderEnd.y - transition.defenderStart.y) * ease;
+  player.vx = 0;
+  player.vy = 0;
+  defender.vx = 0;
+  defender.vy = 0;
+
+  if (state.recoveryBall) {
+    const catchEase = 1 - Math.pow(1 - t, 3);
+    state.recoveryBall.x = transition.ballStart.x + (transition.ballEnd.x - transition.ballStart.x) * catchEase;
+    state.recoveryBall.y = transition.ballStart.y + (transition.ballEnd.y - transition.ballStart.y) * catchEase;
+  }
+
+  if (t >= 1) {
+    setPossession(transition.nextPossession);
+    showMessage(transition.nextPossession === "player" ? "Your ball" : "CPU ball");
+  }
+
+  return true;
 }
 
 function addBurst(x, y, color, count = 16) {
@@ -269,6 +336,7 @@ function addBurst(x, y, color, count = 16) {
 
 function startShot(pointer) {
   if (!state.started) return;
+  if (state.possessionTransition) return;
   if (state.possession !== "player") return;
   if (state.ball || player.cooldown > 0) return;
   input.shootingId = pointer.pointerId;
@@ -461,6 +529,13 @@ function update(dt) {
   const moving = Math.hypot(moveX, moveY);
   const dash = input.dash || keys.has("ShiftLeft") || keys.has("ShiftRight");
   const speed = (dash && player.stamina > 0.12 ? 270 : 178) * (state.ball ? 0.88 : 1);
+
+  if (updatePossessionTransition(step)) {
+    updateParticles(step);
+    updateHud();
+    return;
+  }
+
   player.x += (moving ? moveX / Math.max(1, moving) : 0) * speed * step;
   player.y += (moving ? moveY / Math.max(1, moving) : 0) * speed * step;
   player.x = clamp(player.x, 125, court.w - 145);
@@ -603,6 +678,8 @@ function startGame() {
 function returnToTitle() {
   state.started = false;
   state.ball = null;
+  state.possessionTransition = null;
+  state.recoveryBall = null;
   state.timingActive = false;
   state.timingHold = 0;
   input.shootingId = null;
@@ -659,12 +736,12 @@ function updateBall(dt) {
       state.shake = 8;
       addBurst(court.hoop.x, court.hoop.y, "#99d6c2", 26);
       showMessage(b.owner === "player" ? (b.points === 3 ? "Three ball" : b.quality > 0.86 ? "Perfect release" : "Bucket") : "CPU scores");
-      setPossession(b.owner === "player" ? "cpu" : "player");
+      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", court.hoop.x, court.hoop.y);
     } else {
       state.shake = 4;
       addBurst(b.targetX, b.targetY, "#d9572f", 12);
       showMessage(b.owner === "player" ? (b.quality > 0.58 ? "Rim out" : "Off balance") : "Stop");
-      setTimeout(() => setPossession(b.owner === "player" ? "cpu" : "player"), 420);
+      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", b.targetX, b.targetY);
     }
   }
 }
@@ -687,6 +764,10 @@ function updateParticles(dt) {
 function updateHud() {
   const space = distance(player, defender);
   spaceReadout.textContent = space > 132 ? "Open" : space > 86 ? "Tight" : "Smothered";
+  if (state.possessionTransition) {
+    shotReadout.textContent = "Recover";
+    return;
+  }
   if (state.possession === "cpu") {
     shotReadout.textContent = state.ball ? "Box out" : "Defend";
     return;
@@ -711,14 +792,30 @@ function drawCourt() {
   if (imageReady(assets.court)) {
     ctx.drawImage(assets.court, 0, 0, court.w, court.h);
   } else {
-    ctx.fillStyle = "#b57745";
-    roundRect(0, 0, court.w, court.h, 26);
-    ctx.fill();
+    drawFallbackCourt();
+  }
 
-    ctx.fillStyle = "#cf965d";
-    for (let i = 0; i < 18; i += 1) {
-      ctx.fillRect(i * 64 - 16, 0, 30, court.h);
-    }
+  drawHoop();
+  drawPlayerShadow(player);
+  drawPlayerShadow(defender);
+  drawCharacter(defender, false);
+  drawCharacter(player, true);
+  drawAimPreview();
+  drawBall();
+  drawRecoveryBall();
+  drawParticles();
+
+  ctx.restore();
+}
+
+function drawFallbackCourt() {
+  ctx.fillStyle = "#b57745";
+  roundRect(0, 0, court.w, court.h, 26);
+  ctx.fill();
+
+  ctx.fillStyle = "#cf965d";
+  for (let i = 0; i < 18; i += 1) {
+    ctx.fillRect(i * 64 - 16, 0, 30, court.h);
   }
 
   ctx.strokeStyle = "rgba(255,255,255,0.72)";
@@ -736,17 +833,6 @@ function drawCourt() {
   ctx.beginPath();
   ctx.arc(court.hoop.x, court.hoop.y, 58, 0, Math.PI * 2);
   ctx.stroke();
-
-  drawHoop();
-  drawPlayerShadow(player);
-  drawPlayerShadow(defender);
-  drawCharacter(defender, false);
-  drawCharacter(player, true);
-  drawAimPreview();
-  drawBall();
-  drawParticles();
-
-  ctx.restore();
 }
 
 function drawThreePointLine() {
@@ -802,19 +888,20 @@ function drawPlayerShadow(p) {
 
 function drawCharacter(p, isPlayer) {
   const angle = Math.atan2(court.hoop.y - p.y, court.hoop.x - p.x);
-  const isBallCarrier = !state.ball && ((isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu"));
+  const isBallCarrier = !state.possessionTransition && !state.ball && ((isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu"));
   const sprite = isPlayer
     ? (isBallCarrier ? assets.playerBall : assets.playerDefense)
     : assets.cpu;
 
   if (imageReady(sprite)) {
-    const targetW = isPlayer ? (isBallCarrier ? 78 : 74) : 86;
-    const aspect = sprite.naturalHeight / sprite.naturalWidth;
-    const targetH = targetW * aspect;
+    const targetMax = 76;
+    const scale = targetMax / Math.max(sprite.naturalWidth, sprite.naturalHeight);
+    const targetW = sprite.naturalWidth * scale;
+    const targetH = sprite.naturalHeight * scale;
 
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.rotate(angle);
+    ctx.rotate(angle + Math.PI / 2);
     ctx.drawImage(sprite, -targetW * 0.5, -targetH * 0.5, targetW, targetH);
     ctx.restore();
 
@@ -838,7 +925,7 @@ function drawCharacter(p, isPlayer) {
   ctx.fill();
   ctx.restore();
 
-  const hasLiveBall = !state.ball && ((isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu"));
+  const hasLiveBall = !state.possessionTransition && !state.ball && ((isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu"));
   if (hasLiveBall) {
     drawCarriedBall(p);
   }
@@ -893,6 +980,26 @@ function drawBall() {
   ctx.arc(b.x, b.y - arc, radius * 0.72, Math.PI * 0.5, Math.PI * 1.5);
   ctx.moveTo(b.x - radius, b.y - arc);
   ctx.lineTo(b.x + radius, b.y - arc);
+  ctx.stroke();
+}
+
+function drawRecoveryBall() {
+  if (!state.recoveryBall) return;
+  const b = state.recoveryBall;
+  ctx.fillStyle = "rgba(0,0,0,0.2)";
+  ctx.beginPath();
+  ctx.ellipse(b.x, b.y + 16, 11, 4.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#c96536";
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(23, 19, 11, 0.36)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, 7, Math.PI * 0.5, Math.PI * 1.5);
+  ctx.moveTo(b.x - 10, b.y);
+  ctx.lineTo(b.x + 10, b.y);
   ctx.stroke();
 }
 
