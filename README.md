@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.6.0`
+Version: `0.6.1`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -37,6 +37,8 @@ http://localhost:4173/
 - Near the rim, push the stick toward the hoop and press SHOT with enough space to trigger a layup or dunk.
 - Settings can switch between 1on1 and 2on2. In 2on2, PASS swaps the ball handler with a teammate and both teams move off ball.
 - Dunks trigger stronger screen shake, rim bursts, and a ring shock effect.
+- Characters collide and push apart instead of passing through each other.
+- Defenders contest much less when they are behind the ball handler relative to the hoop.
 
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 

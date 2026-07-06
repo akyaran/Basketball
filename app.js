@@ -34,7 +34,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.6.0";
+const APP_VERSION = "0.6.1";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -239,6 +239,27 @@ function getNearestPlayerDefender(p) {
   return isTwoOnTwo() ? nearestOf(p, [player, teammate]) : player;
 }
 
+function getDefenderFacingFactor(offense, defense) {
+  const rimVector = {
+    x: court.hoop.x - offense.x,
+    y: court.hoop.y - offense.y,
+  };
+  const rimLength = Math.max(1, Math.hypot(rimVector.x, rimVector.y));
+  const rimDir = { x: rimVector.x / rimLength, y: rimVector.y / rimLength };
+  const rel = { x: defense.x - offense.x, y: defense.y - offense.y };
+  const forward = rel.x * rimDir.x + rel.y * rimDir.y;
+  const lateral = Math.abs(rel.x * -rimDir.y + rel.y * rimDir.x);
+
+  if (forward < -8) return clamp(0.26 + lateral / 150, 0.26, 0.72);
+  if (forward < 22) return 0.78;
+  return 1;
+}
+
+function getContestPressureFor(offense, defense) {
+  const base = clamp(1 - (distance(offense, defense) - 42) / 190, 0, 1);
+  return base * getDefenderFacingFactor(offense, defense);
+}
+
 function showMessage(text) {
   state.message = text;
   state.messageTimer = 1.25;
@@ -400,6 +421,7 @@ function updatePossessionTransition(step) {
     state.recoveryBall.x = transition.ballStart.x + (transition.ballEnd.x - transition.ballStart.x) * catchEase;
     state.recoveryBall.y = transition.ballStart.y + (transition.ballEnd.y - transition.ballStart.y) * catchEase;
   }
+  resolveCharacterCollisions();
 
   if (t >= 1) {
     setPossession(transition.nextPossession);
@@ -509,8 +531,9 @@ function launchShot(skill, source, perfectTiming) {
   const primaryDefender = getNearestCpuDefender(shooter);
   const shotDistance = distance(shooter, court.hoop);
   const defenderDistance = distance(shooter, primaryDefender);
-  const contest = getContestPressure();
-  const smother = clamp((58 - defenderDistance) / 24, 0, 1);
+  const facingFactor = getDefenderFacingFactor(shooter, primaryDefender);
+  const contest = getContestPressureFor(shooter, primaryDefender);
+  const smother = clamp((58 - defenderDistance) / 24, 0, 1) * facingFactor;
   const range = clamp((shotDistance - 150) / 520, 0, 1);
   const halfCourtPenalty = clamp((court.hoop.x - shooter.x - court.w / 2) / 170, 0, 1);
   const defenseEffect = 0.25 + settings.defense * 0.58;
@@ -593,7 +616,7 @@ function getFinishOpportunity(offense, defense, moveVector) {
 function launchFinish(owner, kind, quality) {
   const offense = owner === "player" ? getPlayerHandler() : getCpuHandler();
   const defense = owner === "player" ? getNearestCpuDefender(offense) : getNearestPlayerDefender(offense);
-  const contest = clamp(1 - (distance(offense, defense) - 48) / 88, 0, 1);
+  const contest = clamp(1 - (distance(offense, defense) - 48) / 88, 0, 1) * getDefenderFacingFactor(offense, defense);
   const made = kind === "dunk"
     ? contest < 0.82 && quality > 0.72
     : quality - contest * 0.38 > 0.58;
@@ -686,9 +709,9 @@ function launchCpuShot() {
   const primaryDefender = getNearestPlayerDefender(shooter);
   const shotDistance = distance(shooter, court.hoop);
   const defenderDistance = distance(shooter, primaryDefender);
-  const contest = clamp(1 - (defenderDistance - 42) / 185, 0, 1);
+  const contest = clamp(1 - (defenderDistance - 42) / 185, 0, 1) * getDefenderFacingFactor(shooter, primaryDefender);
   const range = clamp((shotDistance - 150) / 520, 0, 1);
-  const halfCourtPenalty = clamp((court.hoop.x - defender.x - court.w / 2) / 170, 0, 1);
+  const halfCourtPenalty = clamp((court.hoop.x - shooter.x - court.w / 2) / 170, 0, 1);
   const quality = clamp(0.82 - contest * 0.48 - range * 0.22 - halfCourtPenalty * 0.55, 0, 1);
   const made = quality > 0.72 || (quality > 0.48 && Math.random() < quality * 0.42);
   const missSide = (Math.random() - 0.5) * (114 - quality * 70);
@@ -791,6 +814,7 @@ function update(dt) {
   } else {
     updateCpuOffense(step);
   }
+  resolveCharacterCollisions();
 
   if (state.timingActive) {
     state.timingHold += dt;
@@ -968,6 +992,49 @@ function moveCharacter(p, step = 0) {
   p.y = clamp(p.y, 92, court.h - 92);
 }
 
+function getActiveCharacters() {
+  return isTwoOnTwo() ? [player, teammate, defender, cpuMate] : [player, defender];
+}
+
+function resolveCharacterCollisions() {
+  const characters = getActiveCharacters();
+  for (let pass = 0; pass < 3; pass += 1) {
+    for (let i = 0; i < characters.length; i += 1) {
+      for (let j = i + 1; j < characters.length; j += 1) {
+        separateCharacters(characters[i], characters[j]);
+      }
+    }
+  }
+  for (const character of characters) {
+    character.x = clamp(character.x, 130, court.w - 130);
+    character.y = clamp(character.y, 92, court.h - 92);
+  }
+}
+
+function separateCharacters(a, b) {
+  const minDistance = a.r + b.r + 8;
+  let dx = b.x - a.x;
+  let dy = b.y - a.y;
+  let d = Math.hypot(dx, dy);
+  if (d >= minDistance) return;
+  if (d < 0.001) {
+    dx = 1;
+    dy = 0;
+    d = 1;
+  }
+  const overlap = minDistance - d;
+  const nx = dx / d;
+  const ny = dy / d;
+  a.x -= nx * overlap * 0.5;
+  a.y -= ny * overlap * 0.5;
+  b.x += nx * overlap * 0.5;
+  b.y += ny * overlap * 0.5;
+  a.vx -= nx * overlap * 2;
+  a.vy -= ny * overlap * 2;
+  b.vx += nx * overlap * 2;
+  b.vy += ny * overlap * 2;
+}
+
 function updateTimingZone() {
   const meterH = Math.max(1, meter.clientHeight);
   const shooter = getPlayerHandler();
@@ -978,7 +1045,7 @@ function updateTimingZone() {
   const halfCourtPressure = clamp((court.hoop.x - shooter.x - court.w / 2) / 180, 0, 1);
   const liveContestPressure = getContestPressure();
   const contestPressure = Math.max(state.timingStartContest, liveContestPressure);
-  const smotherPressure = clamp((58 - distance(shooter, primaryDefender)) / 24, 0, 1);
+  const smotherPressure = clamp((58 - distance(shooter, primaryDefender)) / 24, 0, 1) * getDefenderFacingFactor(shooter, primaryDefender);
   const patiencePressure = clamp(state.timingHold / 2.4, 0, 1);
   const baseSize = 0.34;
   const size = clamp(
@@ -1002,7 +1069,7 @@ function updateTimingZone() {
 
 function getContestPressure() {
   const shooter = getPlayerHandler();
-  return clamp(1 - (distance(shooter, getNearestCpuDefender(shooter)) - 42) / 190, 0, 1);
+  return getContestPressureFor(shooter, getNearestCpuDefender(shooter));
 }
 
 function syncSettings() {
