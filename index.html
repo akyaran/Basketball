@@ -48,6 +48,7 @@
 
       <div class="action-pad" aria-label="アクション">
         <button id="dashButton" class="icon-button" type="button" aria-label="ダッシュ">↯</button>
+        <button id="passButton" class="icon-button pass-button" type="button" aria-label="パス">PASS</button>
         <button id="shootButton" class="shoot-button" type="button" aria-label="シュート">SHOT</button>
       </div>
 
@@ -57,13 +58,13 @@
       </div>
 
       <div id="toast" class="toast">Ready</div>
-      <div id="versionBadge" class="version-badge">v0.5.4</div>
+      <div id="versionBadge" class="version-badge">v0.6.0</div>
 
       <section id="titleScreen" class="title-screen" aria-label="タイトル">
         <div class="title-panel">
-          <p class="kicker">1v1 Prototype</p>
+          <p class="kicker">1v1 / 2v2 Prototype</p>
           <h1>Basketball</h1>
-          <p id="titleVersion" class="title-version">v0.5.4</p>
+          <p id="titleVersion" class="title-version">v0.6.0</p>
           <div class="title-actions">
             <button id="startButton" class="primary-button" type="button">START</button>
             <button id="settingsButton" class="secondary-button" type="button">SETTINGS</button>
@@ -76,6 +77,13 @@
           <div class="settings-head">
             <h2>Settings</h2>
             <button id="closeSettingsButton" class="close-button" type="button" aria-label="閉じる">x</button>
+          </div>
+          <div class="setting-row">
+            <span>Players</span>
+            <div class="segmented-control" role="group" aria-label="プレイヤー数">
+              <button id="mode1v1Button" type="button">1on1</button>
+              <button id="mode2v2Button" type="button">2on2</button>
+            </div>
           </div>
           <label class="slider-row">
             <span>Defense effect</span>
