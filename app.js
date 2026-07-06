@@ -34,7 +34,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.6.1";
+const APP_VERSION = "0.6.2";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -103,6 +103,8 @@ const court = {
   w: 1000,
   h: 620,
   hoop: { x: 830, y: 310 },
+  rightHoop: { x: 830, y: 310 },
+  leftHoop: { x: 170, y: 310 },
   threeRadius: 265,
   threeCornerY: 210,
 };
@@ -239,10 +241,23 @@ function getNearestPlayerDefender(p) {
   return isTwoOnTwo() ? nearestOf(p, [player, teammate]) : player;
 }
 
+function isPlayerTeam(p) {
+  return p === player || p === teammate;
+}
+
+function getAttackHoop(owner) {
+  return owner === "cpu" ? court.leftHoop : court.rightHoop;
+}
+
+function getAttackHoopForCharacter(p) {
+  return isPlayerTeam(p) ? court.rightHoop : court.leftHoop;
+}
+
 function getDefenderFacingFactor(offense, defense) {
+  const hoop = getAttackHoopForCharacter(offense);
   const rimVector = {
-    x: court.hoop.x - offense.x,
-    y: court.hoop.y - offense.y,
+    x: hoop.x - offense.x,
+    y: hoop.y - offense.y,
   };
   const rimLength = Math.max(1, Math.hypot(rimVector.x, rimVector.y));
   const rimDir = { x: rimVector.x / rimLength, y: rimVector.y / rimLength };
@@ -348,10 +363,10 @@ function setPossession(possession) {
 
 function getStartSpots(possession) {
   return {
-    player: { x: possession === "player" ? 340 : 515, y: 286 },
-    teammate: { x: possession === "player" ? 300 : 505, y: 408 },
-    defender: { x: possession === "player" ? 555 : 350, y: 286 },
-    cpuMate: { x: possession === "player" ? 590 : 350, y: 408 },
+    player: { x: possession === "player" ? 340 : 485, y: 286 },
+    teammate: { x: possession === "player" ? 300 : 495, y: 408 },
+    defender: { x: possession === "player" ? 555 : 660, y: 286 },
+    cpuMate: { x: possession === "player" ? 590 : 700, y: 408 },
   };
 }
 
@@ -501,9 +516,10 @@ function releaseShot(pointer) {
 
 function shootAim() {
   const shooter = getPlayerHandler();
+  const hoop = getAttackHoop("player");
   const hoopVector = {
-    x: court.hoop.x - shooter.x,
-    y: court.hoop.y - shooter.y,
+    x: hoop.x - shooter.x,
+    y: hoop.y - shooter.y,
   };
   const hoopLength = Math.hypot(hoopVector.x, hoopVector.y);
   const perfect = { x: hoopVector.x / hoopLength, y: hoopVector.y / hoopLength };
@@ -529,13 +545,14 @@ function shootTiming() {
 function launchShot(skill, source, perfectTiming) {
   const shooter = getPlayerHandler();
   const primaryDefender = getNearestCpuDefender(shooter);
-  const shotDistance = distance(shooter, court.hoop);
+  const hoop = getAttackHoop("player");
+  const shotDistance = distance(shooter, hoop);
   const defenderDistance = distance(shooter, primaryDefender);
   const facingFactor = getDefenderFacingFactor(shooter, primaryDefender);
   const contest = getContestPressureFor(shooter, primaryDefender);
   const smother = clamp((58 - defenderDistance) / 24, 0, 1) * facingFactor;
   const range = clamp((shotDistance - 150) / 520, 0, 1);
-  const halfCourtPenalty = clamp((court.hoop.x - shooter.x - court.w / 2) / 170, 0, 1);
+  const halfCourtPenalty = clamp((hoop.x - shooter.x - court.w / 2) / 170, 0, 1);
   const defenseEffect = 0.25 + settings.defense * 0.58;
   const distanceEffect = 0.08 + settings.distance * 0.3;
   const halfCourtEffect = 0.18 + settings.distance * 0.62;
@@ -547,8 +564,8 @@ function launchShot(skill, source, perfectTiming) {
   const missSide = (Math.random() - 0.5) * (110 - quality * 72);
   const missDepth = (Math.random() - 0.5) * (78 - quality * 48);
   const target = made
-    ? { x: court.hoop.x + (Math.random() - 0.5) * 9, y: court.hoop.y + (Math.random() - 0.5) * 7 }
-    : { x: court.hoop.x + missDepth, y: court.hoop.y + missSide };
+    ? { x: hoop.x + (Math.random() - 0.5) * 9, y: hoop.y + (Math.random() - 0.5) * 7 }
+    : { x: hoop.x + missDepth, y: hoop.y + missSide };
 
   state.ball = {
     owner: "player",
@@ -587,9 +604,10 @@ function getPlayerMoveVector() {
 }
 
 function getFinishOpportunity(offense, defense, moveVector) {
+  const hoop = getAttackHoopForCharacter(offense);
   const rimVector = {
-    x: court.hoop.x - offense.x,
-    y: court.hoop.y - offense.y,
+    x: hoop.x - offense.x,
+    y: hoop.y - offense.y,
   };
   const rimDistance = Math.hypot(rimVector.x, rimVector.y);
   const rimDir = {
@@ -616,14 +634,16 @@ function getFinishOpportunity(offense, defense, moveVector) {
 function launchFinish(owner, kind, quality) {
   const offense = owner === "player" ? getPlayerHandler() : getCpuHandler();
   const defense = owner === "player" ? getNearestCpuDefender(offense) : getNearestPlayerDefender(offense);
+  const hoop = getAttackHoop(owner);
   const contest = clamp(1 - (distance(offense, defense) - 48) / 88, 0, 1) * getDefenderFacingFactor(offense, defense);
   const made = kind === "dunk"
     ? contest < 0.82 && quality > 0.72
     : quality - contest * 0.38 > 0.58;
   const missSide = (Math.random() - 0.5) * 52;
+  const missDepth = owner === "player" ? -22 : 22;
   const target = made
-    ? { x: court.hoop.x + (Math.random() - 0.5) * 6, y: court.hoop.y + (Math.random() - 0.5) * 6 }
-    : { x: court.hoop.x - 22 + (Math.random() - 0.5) * 22, y: court.hoop.y + missSide };
+    ? { x: hoop.x + (Math.random() - 0.5) * 6, y: hoop.y + (Math.random() - 0.5) * 6 }
+    : { x: hoop.x + missDepth + (Math.random() - 0.5) * 22, y: hoop.y + missSide };
 
   state.ball = {
     owner,
@@ -651,8 +671,8 @@ function launchFinish(owner, kind, quality) {
   state.slowUntil = state.time + (kind === "dunk" ? 460 : 280);
   if (kind === "dunk") {
     state.shake = Math.max(state.shake, 14);
-    state.dunkFx = { x: court.hoop.x, y: court.hoop.y, life: 0.52, duration: 0.52 };
-    addBurst(court.hoop.x, court.hoop.y, "#f5bf45", 34);
+    state.dunkFx = { x: hoop.x, y: hoop.y, life: 0.52, duration: 0.52 };
+    addBurst(hoop.x, hoop.y, "#f5bf45", 34);
   }
   showMessage(owner === "player" ? (kind === "dunk" ? "Dunk" : "Layup") : (kind === "dunk" ? "CPU dunk" : "CPU layup"));
 }
@@ -707,18 +727,19 @@ function updatePassBall(step) {
 function launchCpuShot() {
   const shooter = getCpuHandler();
   const primaryDefender = getNearestPlayerDefender(shooter);
-  const shotDistance = distance(shooter, court.hoop);
+  const hoop = getAttackHoop("cpu");
+  const shotDistance = distance(shooter, hoop);
   const defenderDistance = distance(shooter, primaryDefender);
   const contest = clamp(1 - (defenderDistance - 42) / 185, 0, 1) * getDefenderFacingFactor(shooter, primaryDefender);
   const range = clamp((shotDistance - 150) / 520, 0, 1);
-  const halfCourtPenalty = clamp((court.hoop.x - shooter.x - court.w / 2) / 170, 0, 1);
+  const halfCourtPenalty = clamp((shooter.x - hoop.x - court.w / 2) / 170, 0, 1);
   const quality = clamp(0.82 - contest * 0.48 - range * 0.22 - halfCourtPenalty * 0.55, 0, 1);
   const made = quality > 0.72 || (quality > 0.48 && Math.random() < quality * 0.42);
   const missSide = (Math.random() - 0.5) * (114 - quality * 70);
   const missDepth = (Math.random() - 0.5) * (82 - quality * 48);
   const target = made
-    ? { x: court.hoop.x + (Math.random() - 0.5) * 9, y: court.hoop.y + (Math.random() - 0.5) * 7 }
-    : { x: court.hoop.x + missDepth, y: court.hoop.y + missSide };
+    ? { x: hoop.x + (Math.random() - 0.5) * 9, y: hoop.y + (Math.random() - 0.5) * 7 }
+    : { x: hoop.x - missDepth, y: hoop.y + missSide };
 
   state.ball = {
     owner: "cpu",
@@ -850,10 +871,11 @@ function updateCpuDefense(step) {
 }
 
 function guardPlayer(agent, target, step, pressure = 1) {
+  const hoop = getAttackHoopForCharacter(target);
   const guardPressure = state.timingActive ? 1.5 + settings.defense * 1.45 + Math.min(1.75, state.timingHold * 0.58) : 1.05 + settings.defense * 0.62;
   const guardSpot = {
-    x: target.x + clamp(court.hoop.x - target.x, -48, 48),
-    y: target.y + clamp(court.hoop.y - target.y, -42, 42),
+    x: target.x + clamp(hoop.x - target.x, -48, 48),
+    y: target.y + clamp(hoop.y - target.y, -42, 42),
   };
   const chase = distance(target, agent) > 56 ? 1.12 : 0.7;
   const defenderSpeed = 3.8 + settings.defense * 4.6;
@@ -864,10 +886,11 @@ function guardPlayer(agent, target, step, pressure = 1) {
 
 function moveOffBallPlayer(agent, handler, step) {
   if (!isTwoOnTwo() || agent === handler) return;
+  const hoop = getAttackHoop("player");
   const lane = Math.sin(state.time / 520) > 0 ? -1 : 1;
   const target = {
-    x: clamp(handler.x + 92, 250, court.hoop.x - 86),
-    y: clamp(court.hoop.y + lane * 128, 118, court.h - 118),
+    x: clamp(handler.x + 92, 250, hoop.x - 86),
+    y: clamp(hoop.y + lane * 128, 118, court.h - 118),
   };
   agent.vx += (target.x - agent.x) * 2.25 * step;
   agent.vy += (target.y - agent.y) * 2.25 * step;
@@ -882,11 +905,12 @@ function updateCpuOffense(step) {
 
   const handler = getCpuHandler();
   const primaryDefender = getNearestPlayerDefender(handler);
+  const hoop = getAttackHoop("cpu");
   const space = distance(handler, primaryDefender);
-  const rimDistance = distance(handler, court.hoop);
+  const rimDistance = distance(handler, hoop);
   const rimVector = {
-    x: court.hoop.x - handler.x,
-    y: court.hoop.y - handler.y,
+    x: hoop.x - handler.x,
+    y: hoop.y - handler.y,
   };
   const rimLength = Math.max(1, Math.hypot(rimVector.x, rimVector.y));
   const rimDir = { x: rimVector.x / rimLength, y: rimVector.y / rimLength };
@@ -949,10 +973,11 @@ function updateCpuOffense(step) {
 function moveCpuOffBall(step, handler) {
   const offBall = getCpuOffBall();
   if (offBall === handler) return;
+  const hoop = getAttackHoop("cpu");
   const lane = Math.cos(state.time / 480) > 0 ? -1 : 1;
   const target = {
-    x: clamp(handler.x + 100, 310, court.hoop.x - 74),
-    y: clamp(court.hoop.y + lane * 132, 118, court.h - 118),
+    x: clamp(handler.x - 100, hoop.x + 74, 690),
+    y: clamp(hoop.y + lane * 132, 118, court.h - 118),
   };
   offBall.vx += (target.x - offBall.x) * 2.6 * step;
   offBall.vy += (target.y - offBall.y) * 2.6 * step;
@@ -970,9 +995,10 @@ function updatePlayerHelpDefense(step, handler) {
 
 function moveOffBallDefender(agent, target, step) {
   if (!isTwoOnTwo()) return;
+  const hoop = getAttackHoopForCharacter(target);
   const guardSpot = {
-    x: target.x + clamp(court.hoop.x - target.x, -44, 44),
-    y: target.y + clamp(court.hoop.y - target.y, -38, 38),
+    x: target.x + clamp(hoop.x - target.x, -44, 44),
+    y: target.y + clamp(hoop.y - target.y, -38, 38),
   };
   agent.vx += (guardSpot.x - agent.x) * 3.2 * step;
   agent.vy += (guardSpot.y - agent.y) * 3.2 * step;
@@ -1039,10 +1065,11 @@ function updateTimingZone() {
   const meterH = Math.max(1, meter.clientHeight);
   const shooter = getPlayerHandler();
   const primaryDefender = getNearestCpuDefender(shooter);
-  const shotDistance = distance(shooter, court.hoop);
+  const hoop = getAttackHoop("player");
+  const shotDistance = distance(shooter, hoop);
   const rangePressure = clamp((shotDistance - 120) / 470, 0, 1);
   const deepRangePressure = clamp((shotDistance - 300) / 230, 0, 1);
-  const halfCourtPressure = clamp((court.hoop.x - shooter.x - court.w / 2) / 180, 0, 1);
+  const halfCourtPressure = clamp((hoop.x - shooter.x - court.w / 2) / 180, 0, 1);
   const liveContestPressure = getContestPressure();
   const contestPressure = Math.max(state.timingStartContest, liveContestPressure);
   const smotherPressure = clamp((58 - distance(shooter, primaryDefender)) / 24, 0, 1) * getDefenderFacingFactor(shooter, primaryDefender);
@@ -1135,12 +1162,14 @@ function resetSettings() {
 }
 
 function isThreePoint(p) {
+  const hoop = getAttackHoopForCharacter(p);
   const angle = Math.asin(court.threeCornerY / court.threeRadius);
-  const cornerX = court.hoop.x + Math.cos(Math.PI + angle) * court.threeRadius;
-  const dx = p.x - court.hoop.x;
-  const dy = Math.abs(p.y - court.hoop.y);
-  if (dy > court.threeCornerY) return p.x < cornerX;
-  return Math.hypot(dx, p.y - court.hoop.y) > court.threeRadius;
+  const arcInset = Math.cos(Math.PI + angle) * court.threeRadius;
+  const cornerX = hoop === court.rightHoop ? hoop.x + arcInset : hoop.x - arcInset;
+  const dx = p.x - hoop.x;
+  const dy = Math.abs(p.y - hoop.y);
+  if (dy > court.threeCornerY) return hoop === court.rightHoop ? p.x < cornerX : p.x > cornerX;
+  return Math.hypot(dx, p.y - hoop.y) > court.threeRadius;
 }
 
 function updateBall(dt) {
@@ -1154,6 +1183,7 @@ function updateBall(dt) {
 
   if (t >= 1 && !b.scored) {
     b.scored = true;
+    const hoop = getAttackHoop(b.owner);
     if (b.made) {
       if (b.owner === "player") {
         state.playerScore += b.points;
@@ -1163,9 +1193,9 @@ function updateBall(dt) {
         cpuScoreEl.textContent = state.cpuScore;
       }
       state.shake = 8;
-      addBurst(court.hoop.x, court.hoop.y, "#99d6c2", 26);
+      addBurst(hoop.x, hoop.y, "#99d6c2", 26);
       showMessage(getScoreMessage(b));
-      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", court.hoop.x, court.hoop.y);
+      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", hoop.x, hoop.y);
     } else {
       state.shake = 4;
       addBurst(b.targetX, b.targetY, "#d9572f", 12);
@@ -1244,13 +1274,15 @@ function drawCourt() {
     drawFallbackCourt();
   }
 
-  drawHoop();
+  drawHoop(court.leftHoop, "left");
+  drawHoop(court.rightHoop, "right");
   drawPlayerShadow(player);
   drawPlayerShadow(defender);
   if (isTwoOnTwo()) {
     drawPlayerShadow(teammate);
     drawPlayerShadow(cpuMate);
   }
+  drawControlMarker();
   drawCharacter(defender, false);
   if (isTwoOnTwo()) drawCharacter(cpuMate, false);
   if (isTwoOnTwo()) drawCharacter(teammate, true);
@@ -1312,28 +1344,47 @@ function drawThreePointLine() {
   ctx.restore();
 }
 
-function drawHoop() {
-  if (imageReady(assets.hoop)) {
+function drawHoop(hoop = court.rightHoop, side = "right") {
+  if (imageReady(assets.hoop) && side === "right") {
     const hoopW = 150;
     const hoopH = 206;
-    ctx.drawImage(assets.hoop, court.hoop.x - 58, court.hoop.y - 103, hoopW, hoopH);
+    ctx.drawImage(assets.hoop, hoop.x - 58, hoop.y - 103, hoopW, hoopH);
     return;
   }
 
   ctx.fillStyle = "#20262b";
-  roundRect(court.hoop.x + 64, court.hoop.y - 58, 16, 116, 5);
+  roundRect(side === "right" ? hoop.x + 64 : hoop.x - 80, hoop.y - 58, 16, 116, 5);
   ctx.fill();
   ctx.strokeStyle = "#f7f1e3";
   ctx.lineWidth = 7;
   ctx.beginPath();
-  ctx.moveTo(court.hoop.x + 66, court.hoop.y - 48);
-  ctx.lineTo(court.hoop.x + 66, court.hoop.y + 48);
+  const boardX = side === "right" ? hoop.x + 66 : hoop.x - 66;
+  ctx.moveTo(boardX, hoop.y - 48);
+  ctx.lineTo(boardX, hoop.y + 48);
   ctx.stroke();
   ctx.strokeStyle = "#d9572f";
   ctx.lineWidth = 8;
   ctx.beginPath();
-  ctx.arc(court.hoop.x, court.hoop.y, 24, 0, Math.PI * 2);
+  ctx.arc(hoop.x, hoop.y, 24, 0, Math.PI * 2);
   ctx.stroke();
+}
+
+function drawControlMarker() {
+  const controlled = state.possession === "player" ? getPlayerHandler() : player;
+  ctx.save();
+  ctx.strokeStyle = "#fff7e0";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.ellipse(controlled.x, controlled.y + controlled.r + 12, controlled.r * 1.42, controlled.r * 0.52, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = "#f5bf45";
+  ctx.beginPath();
+  ctx.moveTo(controlled.x, controlled.y - controlled.r - 18);
+  ctx.lineTo(controlled.x - 9, controlled.y - controlled.r - 4);
+  ctx.lineTo(controlled.x + 9, controlled.y - controlled.r - 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawPlayerShadow(p) {
@@ -1397,14 +1448,14 @@ function isCurrentBallCarrier(p, isPlayer) {
 function getCharacterFacingTarget(p, isPlayer) {
   if (state.ball) {
     const isShooter = (isPlayer && state.ball.owner === "player") || (!isPlayer && state.ball.owner === "cpu");
-    return isShooter ? court.hoop : state.ball;
+    return isShooter ? getAttackHoop(state.ball.owner) : state.ball;
   }
 
   if (state.recoveryBall) return state.recoveryBall;
   if (state.passBall) return state.passBall;
 
   const isOffense = (isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu");
-  if (isOffense) return court.hoop;
+  if (isOffense) return isPlayer ? court.rightHoop : court.leftHoop;
 
   if (isPlayer) return isTwoOnTwo() && p === teammate ? getCpuOffBall() : getCpuHandler();
   return isTwoOnTwo() && p === cpuMate ? getPlayerOffBall() : getPlayerHandler();

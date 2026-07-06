@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.6.1`
+Version: `0.6.2`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -39,6 +39,7 @@ http://localhost:4173/
 - Dunks trigger stronger screen shake, rim bursts, and a ring shock effect.
 - Characters collide and push apart instead of passing through each other.
 - Defenders contest much less when they are behind the ball handler relative to the hoop.
+- The controlled player is marked on the floor, and 2on2 uses a full court with CPU attacking the left hoop.
 
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 
