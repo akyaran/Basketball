@@ -35,7 +35,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.7.1";
+const APP_VERSION = "0.7.2";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -786,8 +786,14 @@ function passCpuBall() {
   const from = getCpuHandler();
   const team = getCpuTeam();
   const next = team[(team.indexOf(from) + 1) % team.length];
-  const nextHandler = getCpuKey(next);
-  const to = next;
+  passCpuBallTo(next);
+}
+
+function passCpuBallTo(to) {
+  if (!isTwoOnTwo() || state.possession !== "cpu" || state.ball || state.passBall || state.possessionTransition || !to) return;
+  const from = getCpuHandler();
+  if (from === to) return;
+  const nextHandler = getCpuKey(to);
   startPass("cpu", from, to, nextHandler);
 }
 
@@ -978,7 +984,8 @@ function updateCpuDefense(step) {
 
 function getHelpDefender(primary, handler, defenseTeam) {
   const front = getDefenderFrontStrength(handler, primary);
-  const beaten = front < 0.25 && distance(handler, getAttackHoopForCharacter(handler)) < 310;
+  const rimDistance = distance(handler, getAttackHoopForCharacter(handler));
+  const beaten = front < 0.42 && rimDistance < 370;
   if (!beaten) return null;
   const helpers = defenseTeam.filter((member) => member !== primary);
   return helpers.length ? nearestOf(handler, helpers) : null;
@@ -1054,8 +1061,8 @@ function updateCpuOffense(step) {
   }
 
   const side = Math.sin(state.cpuDrivePhase) + Math.sin(state.cpuDrivePhase * 1.9) * 0.34;
-  const shake = state.cpuMoveStyle === "crossover" ? 110 : state.cpuMoveStyle === "hesitate" ? 46 : 70;
-  const push = state.cpuMoveStyle === "stepback" ? -58 : state.cpuMoveStyle === "drive" ? 128 : 74;
+  const shake = state.cpuMoveStyle === "crossover" ? 132 : state.cpuMoveStyle === "hesitate" ? 42 : 82;
+  const push = state.cpuMoveStyle === "stepback" ? -72 : state.cpuMoveStyle === "drive" ? 136 : 78;
   const target = {
     x: handler.x + rimDir.x * push + sideDir.x * side * shake,
     y: handler.y + rimDir.y * push + sideDir.y * side * shake,
@@ -1078,7 +1085,8 @@ function updateCpuOffense(step) {
   if (isTwoOnTwo()) {
     moveCpuOffBall(step, handler);
     updatePlayerHelpDefense(step, handler);
-    if (space < 76 && Math.random() < step * 0.9) passCpuBall();
+    const passTarget = getBestCpuPassTarget(handler, space);
+    if (passTarget && Math.random() < step * getCpuPassUrgency(handler, passTarget, space)) passCpuBallTo(passTarget);
     if (state.passBall) return;
   }
 
@@ -1097,38 +1105,69 @@ function moveCpuOffBall(step, handler) {
   const hoop = getAttackHoop("cpu");
   const offBalls = getCpuOffBalls();
   offBalls.forEach((offBall, index) => {
-    const lane = (index % 2 === 0 ? -1 : 1) * (Math.cos(state.time / 480 + index) > 0 ? 1 : -1);
-    const depth = 96 + index * 42;
+    const lane = index % 2 === 0 ? -1 : 1;
+    const wave = Math.sin(state.time / 620 + index * 1.7) * 30;
+    const depth = 168 + index * 66;
     const target = {
-      x: clamp(handler.x - depth, hoop.x + 74, 700),
-      y: clamp(hoop.y + lane * (118 + index * 28), 118, court.h - 118),
+      x: clamp(handler.x - depth + wave, hoop.x + 92, court.w - 165),
+      y: clamp(hoop.y + lane * (168 + index * 34), 106, court.h - 106),
     };
-    offBall.vx += (target.x - offBall.x) * 2.6 * step;
-    offBall.vy += (target.y - offBall.y) * 2.6 * step;
+    offBall.vx += (target.x - offBall.x) * 3.05 * step;
+    offBall.vy += (target.y - offBall.y) * 3.05 * step;
     moveCharacter(offBall, step);
   });
 }
 
+function getBestCpuPassTarget(handler, handlerSpace) {
+  const candidates = getCpuOffBalls();
+  if (!candidates.length) return null;
+  const scored = candidates
+    .map((candidate) => {
+      const defender = getNearestPlayerDefender(candidate);
+      const space = distance(candidate, defender);
+      const rim = distance(candidate, getAttackHoop("cpu"));
+      const width = Math.abs(candidate.y - court.leftHoop.y);
+      return { candidate, score: space * 1.35 + width * 0.38 - rim * 0.12 };
+    })
+    .sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  const bestSpace = distance(best.candidate, getNearestPlayerDefender(best.candidate));
+  if (bestSpace > handlerSpace + 34) return best.candidate;
+  if (handlerSpace < 82 && bestSpace > 72) return best.candidate;
+  if (state.cpuMoveStyle === "hesitate" && bestSpace > 86) return best.candidate;
+  return null;
+}
+
+function getCpuPassUrgency(handler, target, handlerSpace) {
+  const targetSpace = distance(target, getNearestPlayerDefender(target));
+  const rimDistance = distance(handler, getAttackHoop("cpu"));
+  const pressure = handlerSpace < 76 ? 1.2 : 0.42;
+  const openBonus = targetSpace > 108 ? 0.9 : targetSpace > 86 ? 0.48 : 0;
+  const tempoBonus = state.cpuMoveStyle === "hesitate" || state.cpuMoveStyle === "stepback" ? 0.52 : 0.18;
+  const lateClock = state.cpuShotTimer < 0.35 && rimDistance > 190 ? 0.36 : 0;
+  return pressure + openBonus + tempoBonus + lateClock;
+}
+
 function updatePlayerHelpDefense(step, handler) {
   const primary = getNearestPlayerDefender(handler);
-  if (primary !== player) moveOffBallDefender(primary, handler, step, 0.94, handler, true);
+  if (primary !== player) moveOffBallDefender(primary, handler, step, 1.16, handler, true);
   const aiDefenders = getPlayerTeam().filter((member) => member !== player);
   const helpCandidates = primary === player ? getPlayerTeam() : aiDefenders;
   const help = getHelpDefender(primary, handler, helpCandidates);
-  if (help) moveOffBallDefender(help, handler, step, 1, handler, true);
+  if (help) moveOffBallDefender(help, handler, step, 1.38, handler, true);
   const offBalls = getCpuOffBalls();
   getPlayerTeam()
     .filter((member) => member !== player && member !== primary && member !== help)
     .forEach((agent, index) => {
       const target = offBalls[index % Math.max(1, offBalls.length)] || getCpuOffBall();
-      moveOffBallDefender(agent, target, step, 0.78, handler);
+      moveOffBallDefender(agent, target, step, 0.84, handler);
     });
 }
 
 function moveOffBallDefender(agent, target, step, pressure = 1, ballHandler = null, onBall = false) {
   if (!isTwoOnTwo()) return;
   const guardSpot = onBall ? getFrontGuardSpot(target, 88) : getZoneGuardSpot(target, ballHandler);
-  const speed = onBall ? 3.05 : 2.35;
+  const speed = onBall ? 3.95 : 2.65;
   agent.vx += (guardSpot.x - agent.x) * speed * step * pressure;
   agent.vy += (guardSpot.y - agent.y) * speed * step * pressure;
   moveCharacter(agent, step);
@@ -1136,11 +1175,10 @@ function moveOffBallDefender(agent, target, step, pressure = 1, ballHandler = nu
 
 function getZoneGuardSpot(target, ballHandler) {
   const hoop = getAttackHoopForCharacter(target);
-  const front = getFrontGuardSpot(target, 118);
-  if (!ballHandler) return front;
+  if (!ballHandler) return getFrontGuardSpot(target, 118);
   return {
-    x: clamp(front.x * 0.58 + ballHandler.x * 0.22 + hoop.x * 0.2, 130, court.w - 130),
-    y: clamp(front.y * 0.68 + ballHandler.y * 0.18 + hoop.y * 0.14, 92, court.h - 92),
+    x: clamp(target.x * 0.34 + ballHandler.x * 0.33 + hoop.x * 0.33, 130, court.w - 130),
+    y: clamp(target.y * 0.34 + ballHandler.y * 0.33 + hoop.y * 0.33, 92, court.h - 92),
   };
 }
 
