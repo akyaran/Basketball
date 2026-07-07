@@ -17,6 +17,7 @@ const closeSettingsButton = document.getElementById("closeSettingsButton");
 const resetSettingsButton = document.getElementById("resetSettingsButton");
 const mode1v1Button = document.getElementById("mode1v1Button");
 const mode2v2Button = document.getElementById("mode2v2Button");
+const mode3v3Button = document.getElementById("mode3v3Button");
 const defenseSlider = document.getElementById("defenseSlider");
 const distanceSlider = document.getElementById("distanceSlider");
 const meterSpeedSlider = document.getElementById("meterSpeedSlider");
@@ -34,7 +35,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.6.3";
+const APP_VERSION = "0.7.0";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -152,6 +153,17 @@ const teammate = {
   cooldown: 0,
 };
 
+const playerWing = {
+  x: 260,
+  y: 210,
+  r: 21,
+  color: "#f5bf45",
+  vx: 0,
+  vy: 0,
+  stamina: 1,
+  cooldown: 0,
+};
+
 const defender = {
   x: 525,
   y: 310,
@@ -164,6 +176,15 @@ const defender = {
 const cpuMate = {
   x: 560,
   y: 410,
+  r: 23,
+  color: "#4aa3df",
+  vx: 0,
+  vy: 0,
+};
+
+const cpuWing = {
+  x: 610,
+  y: 210,
   r: 23,
   color: "#4aa3df",
   vx: 0,
@@ -210,23 +231,65 @@ function distance(a, b) {
 }
 
 function isTwoOnTwo() {
-  return settings.players === "2v2";
+  return getPlayerCount() >= 2;
+}
+
+function isThreeOnThree() {
+  return getPlayerCount() >= 3;
+}
+
+function getPlayerCount() {
+  return settings.players === "3v3" ? 3 : settings.players === "2v2" ? 2 : 1;
+}
+
+function getPlayerTeam() {
+  return getPlayerCount() >= 3 ? [player, teammate, playerWing] : getPlayerCount() >= 2 ? [player, teammate] : [player];
+}
+
+function getCpuTeam() {
+  return getPlayerCount() >= 3 ? [defender, cpuMate, cpuWing] : getPlayerCount() >= 2 ? [defender, cpuMate] : [defender];
+}
+
+function getPlayerKey(p) {
+  if (p === teammate) return "teammate";
+  if (p === playerWing) return "playerWing";
+  return "player";
+}
+
+function getCpuKey(p) {
+  if (p === cpuMate) return "cpuMate";
+  if (p === cpuWing) return "cpuWing";
+  return "defender";
+}
+
+function findByKey(team, key, fallback) {
+  return team.find((member) => getPlayerKey(member) === key || getCpuKey(member) === key) || fallback;
 }
 
 function getPlayerHandler() {
-  return isTwoOnTwo() && state.playerHandler === "teammate" ? teammate : player;
+  return findByKey(getPlayerTeam(), state.playerHandler, player);
 }
 
 function getCpuHandler() {
-  return isTwoOnTwo() && state.cpuHandler === "cpuMate" ? cpuMate : defender;
+  return findByKey(getCpuTeam(), state.cpuHandler, defender);
 }
 
 function getPlayerOffBall() {
-  return getPlayerHandler() === player ? teammate : player;
+  return getPlayerOffBalls()[0] || player;
 }
 
 function getCpuOffBall() {
-  return getCpuHandler() === defender ? cpuMate : defender;
+  return getCpuOffBalls()[0] || defender;
+}
+
+function getPlayerOffBalls() {
+  const handler = getPlayerHandler();
+  return getPlayerTeam().filter((member) => member !== handler);
+}
+
+function getCpuOffBalls() {
+  const handler = getCpuHandler();
+  return getCpuTeam().filter((member) => member !== handler);
 }
 
 function nearestOf(p, options) {
@@ -234,15 +297,15 @@ function nearestOf(p, options) {
 }
 
 function getNearestCpuDefender(p) {
-  return isTwoOnTwo() ? nearestOf(p, [defender, cpuMate]) : defender;
+  return nearestOf(p, getCpuTeam());
 }
 
 function getNearestPlayerDefender(p) {
-  return isTwoOnTwo() ? nearestOf(p, [player, teammate]) : player;
+  return nearestOf(p, getPlayerTeam());
 }
 
 function isPlayerTeam(p) {
-  return p === player || p === teammate;
+  return p === player || p === teammate || p === playerWing;
 }
 
 function getAttackHoop(owner) {
@@ -327,7 +390,7 @@ function loadSettings() {
     settings.defense = readSetting(saved.defense, DEFAULT_SETTINGS.defense);
     settings.distance = readSetting(saved.distance, DEFAULT_SETTINGS.distance);
     settings.meterSpeed = readSetting(saved.meterSpeed, DEFAULT_SETTINGS.meterSpeed);
-    settings.players = saved.players === "2v2" ? "2v2" : "1v1";
+    settings.players = saved.players === "3v3" ? "3v3" : saved.players === "2v2" ? "2v2" : "1v1";
   } catch (error) {
     Object.assign(settings, DEFAULT_SETTINGS);
   }
@@ -344,6 +407,7 @@ function applySettingsToControls() {
   meterSpeedSlider.value = Math.round(settings.meterSpeed * 100);
   mode1v1Button.classList.toggle("active", settings.players === "1v1");
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
+  mode3v3Button.classList.toggle("active", settings.players === "3v3");
 }
 
 function resetPossession(scoredByPlayer) {
@@ -365,8 +429,10 @@ function setPossession(possession) {
   const spots = getStartSpots(possession);
   setCharacterPosition(player, spots.player);
   setCharacterPosition(teammate, spots.teammate);
+  setCharacterPosition(playerWing, spots.playerWing);
   setCharacterPosition(defender, spots.defender);
   setCharacterPosition(cpuMate, spots.cpuMate);
+  setCharacterPosition(cpuWing, spots.cpuWing);
   state.ball = null;
   state.shotCharge = 0;
   state.timingActive = false;
@@ -379,8 +445,10 @@ function getStartSpots(possession) {
   return {
     player: { x: possession === "player" ? 340 : 485, y: 286 },
     teammate: { x: possession === "player" ? 300 : 495, y: 408 },
+    playerWing: { x: possession === "player" ? 300 : 500, y: 180 },
     defender: { x: possession === "player" ? 555 : 660, y: 286 },
     cpuMate: { x: possession === "player" ? 590 : 700, y: 408 },
+    cpuWing: { x: possession === "player" ? 590 : 700, y: 180 },
   };
 }
 
@@ -404,10 +472,14 @@ function beginPossessionTransition(nextPossession, ballX, ballY) {
     playerEnd: spots.player,
     teammateStart: { x: teammate.x, y: teammate.y },
     teammateEnd: spots.teammate,
+    playerWingStart: { x: playerWing.x, y: playerWing.y },
+    playerWingEnd: spots.playerWing,
     defenderStart: { x: defender.x, y: defender.y },
     defenderEnd: spots.defender,
     cpuMateStart: { x: cpuMate.x, y: cpuMate.y },
     cpuMateEnd: spots.cpuMate,
+    cpuWingStart: { x: cpuWing.x, y: cpuWing.y },
+    cpuWingEnd: spots.cpuWing,
     ballStart: { x: ballX, y: ballY },
     ballEnd: { x: receiver.x + 18, y: receiver.y - 18 },
   };
@@ -432,18 +504,26 @@ function updatePossessionTransition(step) {
   player.y = transition.playerStart.y + (transition.playerEnd.y - transition.playerStart.y) * ease;
   teammate.x = transition.teammateStart.x + (transition.teammateEnd.x - transition.teammateStart.x) * ease;
   teammate.y = transition.teammateStart.y + (transition.teammateEnd.y - transition.teammateStart.y) * ease;
+  playerWing.x = transition.playerWingStart.x + (transition.playerWingEnd.x - transition.playerWingStart.x) * ease;
+  playerWing.y = transition.playerWingStart.y + (transition.playerWingEnd.y - transition.playerWingStart.y) * ease;
   defender.x = transition.defenderStart.x + (transition.defenderEnd.x - transition.defenderStart.x) * ease;
   defender.y = transition.defenderStart.y + (transition.defenderEnd.y - transition.defenderStart.y) * ease;
   cpuMate.x = transition.cpuMateStart.x + (transition.cpuMateEnd.x - transition.cpuMateStart.x) * ease;
   cpuMate.y = transition.cpuMateStart.y + (transition.cpuMateEnd.y - transition.cpuMateStart.y) * ease;
+  cpuWing.x = transition.cpuWingStart.x + (transition.cpuWingEnd.x - transition.cpuWingStart.x) * ease;
+  cpuWing.y = transition.cpuWingStart.y + (transition.cpuWingEnd.y - transition.cpuWingStart.y) * ease;
   player.vx = 0;
   player.vy = 0;
   teammate.vx = 0;
   teammate.vy = 0;
+  playerWing.vx = 0;
+  playerWing.vy = 0;
   defender.vx = 0;
   defender.vy = 0;
   cpuMate.vx = 0;
   cpuMate.vy = 0;
+  cpuWing.vx = 0;
+  cpuWing.vy = 0;
 
   if (state.recoveryBall) {
     const catchEase = 1 - Math.pow(1 - t, 3);
@@ -694,16 +774,20 @@ function launchFinish(owner, kind, quality) {
 function passPlayerBall() {
   if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition) return;
   const from = getPlayerHandler();
-  const nextHandler = state.playerHandler === "player" ? "teammate" : "player";
-  const to = nextHandler === "player" ? player : teammate;
+  const team = getPlayerTeam();
+  const next = team[(team.indexOf(from) + 1) % team.length];
+  const nextHandler = getPlayerKey(next);
+  const to = next;
   startPass("player", from, to, nextHandler);
 }
 
 function passCpuBall() {
   if (!isTwoOnTwo() || state.possession !== "cpu" || state.ball || state.passBall || state.possessionTransition) return;
   const from = getCpuHandler();
-  const nextHandler = state.cpuHandler === "defender" ? "cpuMate" : "defender";
-  const to = nextHandler === "defender" ? defender : cpuMate;
+  const team = getCpuTeam();
+  const next = team[(team.indexOf(from) + 1) % team.length];
+  const nextHandler = getCpuKey(next);
+  const to = next;
   startPass("cpu", from, to, nextHandler);
 }
 
@@ -843,6 +927,7 @@ function update(dt) {
   controlled.stamina = clamp(controlled.stamina + (dash && moving ? -0.55 : 0.34) * step, 0, 1);
   player.cooldown = Math.max(0, player.cooldown - step);
   teammate.cooldown = Math.max(0, teammate.cooldown - step);
+  playerWing.cooldown = Math.max(0, playerWing.cooldown - step);
 
   if (state.possession === "player") {
     updateCpuDefense(step);
@@ -873,15 +958,30 @@ function update(dt) {
 
 function updateCpuDefense(step) {
   const handler = getPlayerHandler();
-  const offBall = getPlayerOffBall();
-  const primary = isTwoOnTwo() && state.playerHandler === "teammate" ? cpuMate : defender;
-  const secondary = primary === defender ? cpuMate : defender;
+  const primary = getNearestCpuDefender(handler);
   guardPlayer(primary, handler, step, state.timingActive ? 1.35 : 1);
 
   if (isTwoOnTwo()) {
-    moveOffBallPlayer(offBall, handler, step);
-    guardPlayer(secondary, offBall, step, 0.78);
+    const offBalls = getPlayerOffBalls();
+    for (const offBall of offBalls) moveOffBallPlayer(offBall, handler, step);
+    const help = getHelpDefender(primary, handler, getCpuTeam());
+    if (help) {
+      guardPlayer(help, handler, step, 1.08);
+    }
+    const defenders = getCpuTeam().filter((member) => member !== primary && member !== help);
+    defenders.forEach((agent, index) => {
+      const target = offBalls[index % Math.max(1, offBalls.length)] || handler;
+      guardPlayer(agent, target, step, 0.72);
+    });
   }
+}
+
+function getHelpDefender(primary, handler, defenseTeam) {
+  const front = getDefenderFrontStrength(handler, primary);
+  const beaten = front < 0.25 && distance(handler, getAttackHoopForCharacter(handler)) < 310;
+  if (!beaten) return null;
+  const helpers = defenseTeam.filter((member) => member !== primary);
+  return helpers.length ? nearestOf(handler, helpers) : null;
 }
 
 function guardPlayer(agent, target, step, pressure = 1) {
@@ -985,37 +1085,46 @@ function updateCpuOffense(step) {
 }
 
 function moveCpuOffBall(step, handler) {
-  const offBall = getCpuOffBall();
-  if (offBall === handler) return;
   const hoop = getAttackHoop("cpu");
-  const lane = Math.cos(state.time / 480) > 0 ? -1 : 1;
-  const target = {
-    x: clamp(handler.x - 100, hoop.x + 74, 690),
-    y: clamp(hoop.y + lane * 132, 118, court.h - 118),
-  };
-  offBall.vx += (target.x - offBall.x) * 2.6 * step;
-  offBall.vy += (target.y - offBall.y) * 2.6 * step;
-  moveCharacter(offBall, step);
+  const offBalls = getCpuOffBalls();
+  offBalls.forEach((offBall, index) => {
+    const lane = (index % 2 === 0 ? -1 : 1) * (Math.cos(state.time / 480 + index) > 0 ? 1 : -1);
+    const depth = 96 + index * 42;
+    const target = {
+      x: clamp(handler.x - depth, hoop.x + 74, 700),
+      y: clamp(hoop.y + lane * (118 + index * 28), 118, court.h - 118),
+    };
+    offBall.vx += (target.x - offBall.x) * 2.6 * step;
+    offBall.vy += (target.y - offBall.y) * 2.6 * step;
+    moveCharacter(offBall, step);
+  });
 }
 
 function updatePlayerHelpDefense(step, handler) {
-  const offBall = getCpuOffBall();
-  if (state.cpuHandler === "cpuMate") {
-    moveOffBallDefender(teammate, defender, step);
-  } else {
-    moveOffBallDefender(teammate, offBall, step);
-  }
+  const primary = getNearestPlayerDefender(handler);
+  if (primary !== player) moveOffBallDefender(primary, handler, step, 1.08);
+  const aiDefenders = getPlayerTeam().filter((member) => member !== player);
+  const helpCandidates = primary === player ? getPlayerTeam() : aiDefenders;
+  const help = getHelpDefender(primary, handler, helpCandidates);
+  if (help) moveOffBallDefender(help, handler, step, 1.12);
+  const offBalls = getCpuOffBalls();
+  getPlayerTeam()
+    .filter((member) => member !== player && member !== primary && member !== help)
+    .forEach((agent, index) => {
+      const target = offBalls[index % Math.max(1, offBalls.length)] || getCpuOffBall();
+      moveOffBallDefender(agent, target, step, 0.88);
+    });
 }
 
-function moveOffBallDefender(agent, target, step) {
+function moveOffBallDefender(agent, target, step, pressure = 1) {
   if (!isTwoOnTwo()) return;
   const hoop = getAttackHoopForCharacter(target);
   const guardSpot = {
     x: target.x + clamp(hoop.x - target.x, -44, 44),
     y: target.y + clamp(hoop.y - target.y, -38, 38),
   };
-  agent.vx += (guardSpot.x - agent.x) * 3.2 * step;
-  agent.vy += (guardSpot.y - agent.y) * 3.2 * step;
+  agent.vx += (guardSpot.x - agent.x) * 3.2 * step * pressure;
+  agent.vy += (guardSpot.y - agent.y) * 3.2 * step * pressure;
   moveCharacter(agent, step);
 }
 
@@ -1033,7 +1142,7 @@ function moveCharacter(p, step = 0) {
 }
 
 function getActiveCharacters() {
-  return isTwoOnTwo() ? [player, teammate, defender, cpuMate] : [player, defender];
+  return [...getPlayerTeam(), ...getCpuTeam()];
 }
 
 function resolveCharacterCollisions() {
@@ -1066,7 +1175,7 @@ function separateCharacters(a, b) {
   const nx = dx / d;
   const ny = dy / d;
   const block = getCollisionBlock(a, b);
-  const aPush = block.offense === a ? 0.5 + block.strength * 0.36 : block.offense === b ? 0.5 - block.strength * 0.36 : 0.5;
+  const aPush = block.offense === a ? 0.72 + block.strength * 0.26 : block.offense === b ? 0.28 - block.strength * 0.26 : 0.5;
   const bPush = 1 - aPush;
 
   a.x -= nx * overlap * aPush;
@@ -1142,7 +1251,8 @@ function syncSettings() {
   meterSpeedValue.textContent = `${meterSpeedSlider.value}%`;
   mode1v1Button.classList.toggle("active", settings.players === "1v1");
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
-  passButton.hidden = settings.players !== "2v2";
+  mode3v3Button.classList.toggle("active", settings.players === "3v3");
+  passButton.hidden = getPlayerCount() < 2;
   if (state.timingActive) updateTimingZone();
   saveSettings();
 }
@@ -1151,7 +1261,7 @@ function setPlayerMode(mode) {
   settings.players = mode;
   syncSettings();
   resetPossession(state.possession === "player");
-  showMessage(mode === "2v2" ? "2on2" : "1on1");
+  showMessage(mode === "3v3" ? "3on3" : mode === "2v2" ? "2on2" : "1on1");
 }
 
 function startGame() {
@@ -1310,17 +1420,11 @@ function drawCourt() {
 
   drawHoop(court.leftHoop, "left");
   drawHoop(court.rightHoop, "right");
-  drawPlayerShadow(player);
-  drawPlayerShadow(defender);
-  if (isTwoOnTwo()) {
-    drawPlayerShadow(teammate);
-    drawPlayerShadow(cpuMate);
-  }
+  for (const p of getCpuTeam()) drawPlayerShadow(p);
+  for (const p of getPlayerTeam()) drawPlayerShadow(p);
   drawControlMarker();
-  drawCharacter(defender, false);
-  if (isTwoOnTwo()) drawCharacter(cpuMate, false);
-  if (isTwoOnTwo()) drawCharacter(teammate, true);
-  drawCharacter(player, true);
+  for (const p of getCpuTeam()) drawCharacter(p, false);
+  for (const p of getPlayerTeam()) drawCharacter(p, true);
   drawAimPreview();
   drawBall();
   drawPassBall();
@@ -1491,8 +1595,8 @@ function getCharacterFacingTarget(p, isPlayer) {
   const isOffense = (isPlayer && state.possession === "player") || (!isPlayer && state.possession === "cpu");
   if (isOffense) return isPlayer ? court.rightHoop : court.leftHoop;
 
-  if (isPlayer) return isTwoOnTwo() && p === teammate ? getCpuOffBall() : getCpuHandler();
-  return isTwoOnTwo() && p === cpuMate ? getPlayerOffBall() : getPlayerHandler();
+  if (isPlayer) return p === player ? getCpuHandler() : getCpuOffBall();
+  return p === defender ? getPlayerHandler() : getPlayerOffBall();
 }
 
 function drawCarriedBall(p) {
@@ -1706,6 +1810,7 @@ closeSettingsButton.addEventListener("click", closeSettings);
 resetSettingsButton.addEventListener("click", resetSettings);
 mode1v1Button.addEventListener("click", () => setPlayerMode("1v1"));
 mode2v2Button.addEventListener("click", () => setPlayerMode("2v2"));
+mode3v3Button.addEventListener("click", () => setPlayerMode("3v3"));
 settingsPanel.addEventListener("click", (event) => {
   if (event.target === settingsPanel) closeSettings();
 });

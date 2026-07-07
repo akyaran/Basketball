@@ -466,8 +466,8 @@ button {
 
 .segmented-control {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  width: 164px;
+  grid-template-columns: 1fr 1fr 1fr;
+  width: 222px;
   padding: 3px;
   border: 1px solid rgba(247, 241, 227, 0.14);
   border-radius: 8px;
