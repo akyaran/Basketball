@@ -34,7 +34,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.6.2";
+const APP_VERSION = "0.6.3";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -273,6 +273,20 @@ function getDefenderFacingFactor(offense, defense) {
 function getContestPressureFor(offense, defense) {
   const base = clamp(1 - (distance(offense, defense) - 42) / 190, 0, 1);
   return base * getDefenderFacingFactor(offense, defense);
+}
+
+function getDefenderFrontStrength(offense, defense) {
+  const hoop = getAttackHoopForCharacter(offense);
+  const rimVector = {
+    x: hoop.x - offense.x,
+    y: hoop.y - offense.y,
+  };
+  const rimLength = Math.max(1, Math.hypot(rimVector.x, rimVector.y));
+  const rimDir = { x: rimVector.x / rimLength, y: rimVector.y / rimLength };
+  const rel = { x: defense.x - offense.x, y: defense.y - offense.y };
+  const forward = rel.x * rimDir.x + rel.y * rimDir.y;
+  const lateral = Math.abs(rel.x * -rimDir.y + rel.y * rimDir.x);
+  return clamp((forward + 10) / 72, 0, 1) * clamp(1 - lateral / 74, 0, 1);
 }
 
 function showMessage(text) {
@@ -1051,14 +1065,34 @@ function separateCharacters(a, b) {
   const overlap = minDistance - d;
   const nx = dx / d;
   const ny = dy / d;
-  a.x -= nx * overlap * 0.5;
-  a.y -= ny * overlap * 0.5;
-  b.x += nx * overlap * 0.5;
-  b.y += ny * overlap * 0.5;
-  a.vx -= nx * overlap * 2;
-  a.vy -= ny * overlap * 2;
-  b.vx += nx * overlap * 2;
-  b.vy += ny * overlap * 2;
+  const block = getCollisionBlock(a, b);
+  const aPush = block.offense === a ? 0.5 + block.strength * 0.36 : block.offense === b ? 0.5 - block.strength * 0.36 : 0.5;
+  const bPush = 1 - aPush;
+
+  a.x -= nx * overlap * aPush;
+  a.y -= ny * overlap * aPush;
+  b.x += nx * overlap * bPush;
+  b.y += ny * overlap * bPush;
+  a.vx -= nx * overlap * (1.8 + aPush);
+  a.vy -= ny * overlap * (1.8 + aPush);
+  b.vx += nx * overlap * (1.8 + bPush);
+  b.vy += ny * overlap * (1.8 + bPush);
+
+  if (block.offense) {
+    block.offense.vx *= 1 - block.strength * 0.42;
+    block.offense.vy *= 1 - block.strength * 0.42;
+    block.defense.vx *= 1 - block.strength * 0.14;
+    block.defense.vy *= 1 - block.strength * 0.14;
+  }
+}
+
+function getCollisionBlock(a, b) {
+  if (isPlayerTeam(a) === isPlayerTeam(b)) return { strength: 0, offense: null, defense: null };
+  const aIsOffense = state.possession === "player" ? isPlayerTeam(a) : !isPlayerTeam(a);
+  const offense = aIsOffense ? a : b;
+  const defense = aIsOffense ? b : a;
+  const strength = getDefenderFrontStrength(offense, defense);
+  return { strength, offense, defense };
 }
 
 function updateTimingZone() {

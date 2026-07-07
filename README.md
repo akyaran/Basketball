@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.6.2`
+Version: `0.6.3`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -40,6 +40,7 @@ http://localhost:4173/
 - Characters collide and push apart instead of passing through each other.
 - Defenders contest much less when they are behind the ball handler relative to the hoop.
 - The controlled player is marked on the floor, and 2on2 uses a full court with CPU attacking the left hoop.
+- Front-facing defenders hold position more strongly in collisions, making it harder to simply push through to the rim.
 
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 
