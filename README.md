@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.7.2`
+Version: `0.7.3`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -44,6 +44,7 @@ http://localhost:4173/
 - Help defenders rotate toward the ball when the primary defender is beaten.
 - Defenders keep more cushion on the ball, and off-ball defenders shade space in a looser zone stance.
 - Help defense reacts earlier, off-ball defenders sit between the ball, hoop, and mark, and CPU offense spaces wider before passing.
+- Team defense now assigns on-ball, help, and gap roles each frame, while CPU offense uses wider spacing, swing passes, and safer pass-lane reads.
 
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 
