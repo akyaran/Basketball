@@ -34,8 +34,9 @@ const shotReadout = document.getElementById("shotReadout");
 const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
+const shotClockEl = document.getElementById("shotClock");
 
-const APP_VERSION = "0.7.6";
+const APP_VERSION = "0.7.7";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -71,6 +72,7 @@ const state = {
   playerScore: 0,
   cpuScore: 0,
   possession: "player",
+  shotClock: 24,
   cpuShotTimer: 0,
   cpuDrivePhase: 0,
   cpuMoveTimer: 0,
@@ -428,6 +430,7 @@ function setPossession(possession) {
   state.cpuMoveStyle = "probe";
   state.cpuBurst = 1;
   state.cpuPassCooldown = 0.75;
+  state.shotClock = 24;
   const spots = getStartSpots(possession);
   setCharacterPosition(player, spots.player);
   setCharacterPosition(teammate, spots.teammate);
@@ -487,6 +490,7 @@ function beginPossessionTransition(nextPossession, ballX, ballY) {
   };
   state.recoveryBall = { x: ballX, y: ballY };
   state.ball = null;
+  state.passBall = null;
   state.shotCharge = 0;
   state.timingActive = false;
   state.timingHold = 0;
@@ -901,10 +905,11 @@ function shouldCpuShoot(profile, handlerSpace, rimDistance) {
   if (profile.shotDistance > 455) return false;
   const open = handlerSpace > 112 || profile.contest < 0.24;
   const close = rimDistance < 185;
-  const baseline = profile.points === 3 ? 0.98 : 0.82;
+  const clockPressure = state.shotClock < 5 ? 0.18 : state.shotClock < 9 ? 0.08 : 0;
+  const baseline = (profile.points === 3 ? 0.98 : 0.82) - clockPressure;
   const styleBonus = state.cpuMoveStyle === "catch" || state.cpuMoveStyle === "swing" ? -0.08 : state.cpuMoveStyle === "stepback" ? -0.03 : 0.04;
   const randomGreenLight = Math.random() < 0.08 && open && profile.expectedValue > baseline - 0.18;
-  return close || (open && profile.expectedValue > baseline + styleBonus) || randomGreenLight;
+  return state.shotClock < 2.2 || close || (open && profile.expectedValue > baseline + styleBonus) || randomGreenLight;
 }
 
 function handleJoystickDown(event) {
@@ -963,6 +968,11 @@ function update(dt) {
   }
 
   updatePassBall(step);
+  if (updateShotClock(step)) {
+    updateParticles(step);
+    updateHud();
+    return;
+  }
   if (state.passBall) {
     updateParticles(step);
     updateHud();
@@ -1005,13 +1015,23 @@ function update(dt) {
   updateHud();
 }
 
+function updateShotClock(step) {
+  if (state.possessionTransition || state.ball || !state.started) return false;
+  state.shotClock = Math.max(0, state.shotClock - step);
+  if (state.shotClock > 0) return false;
+  const handler = state.possession === "player" ? getPlayerHandler() : getCpuHandler();
+  showMessage("24 seconds");
+  beginPossessionTransition(state.possession === "player" ? "cpu" : "player", handler.x, handler.y);
+  return true;
+}
+
 function updateCpuDefense(step) {
   const handler = getPlayerHandler();
   updateCpuZoneDefense(handler, step);
 
   if (isTwoOnTwo()) {
     const offBalls = getPlayerOffBalls();
-    for (const offBall of offBalls) moveOffBallPlayer(offBall, handler, step);
+    offBalls.forEach((offBall, index) => moveOffBallPlayer(offBall, handler, step, index));
   }
 }
 
@@ -1212,16 +1232,18 @@ function getDefenseMatchups(defenders, targets) {
   });
 }
 
-function moveOffBallPlayer(agent, handler, step) {
+function moveOffBallPlayer(agent, handler, step, index = 0) {
   if (!isTwoOnTwo() || agent === handler) return;
   const hoop = getAttackHoop("player");
-  const lane = Math.sin(state.time / 520) > 0 ? -1 : 1;
+  const lane = index % 2 === 0 ? -1 : 1;
+  const roam = Math.sin(state.time / (680 + index * 90) + index * 1.9);
+  const lift = Math.cos(state.time / (760 + index * 80) + agent.x * 0.01);
   const target = {
-    x: clamp(handler.x + 92, 250, hoop.x - 86),
-    y: clamp(hoop.y + lane * 128, 118, court.h - 118),
+    x: clamp(handler.x + 112 + roam * 58 - index * 34, 250, hoop.x - 92),
+    y: clamp(hoop.y + lane * (154 + index * 34) + lift * 42, 102, court.h - 102),
   };
-  agent.vx += (target.x - agent.x) * 2.25 * step;
-  agent.vy += (target.y - agent.y) * 2.25 * step;
+  agent.vx += (target.x - agent.x) * 2.65 * step;
+  agent.vy += (target.y - agent.y) * 2.65 * step;
   moveCharacter(agent, step);
 }
 
@@ -1247,11 +1269,11 @@ function updateCpuOffense(step) {
   if (state.cpuMoveTimer <= 0) {
     const laneOpen = space > 96 || rimDistance < 180;
     const roll = Math.random();
-    state.cpuMoveStyle = laneOpen && roll > 0.35
+    state.cpuMoveStyle = laneOpen && roll > 0.22
       ? "drive"
-      : roll > 0.76
+      : roll > 0.9
         ? "swing"
-        : roll > 0.58
+        : roll > 0.68
         ? "stepback"
         : roll > 0.28
           ? "crossover"
@@ -1286,7 +1308,9 @@ function updateCpuOffense(step) {
     moveCpuOffBall(step, handler);
     updatePlayerHelpDefense(step, handler);
     const passTarget = getBestCpuPassTarget(handler, space);
-    if (passTarget && (state.cpuMoveStyle === "swing" || Math.random() < step * getCpuPassUrgency(handler, passTarget, space))) passCpuBallTo(passTarget);
+    const passUrgency = passTarget ? getCpuPassUrgency(handler, passTarget, space) : 0;
+    const shouldPass = state.cpuMoveStyle !== "drive" && passTarget && (state.cpuMoveStyle === "swing" ? passUrgency > 1.1 : Math.random() < step * passUrgency);
+    if (shouldPass) passCpuBallTo(passTarget);
     if (state.passBall) return;
   }
 
@@ -1347,9 +1371,9 @@ function getBestCpuPassTarget(handler, handlerSpace) {
     .sort((a, b) => b.score - a.score);
   const best = scored[0];
   const bestSpace = distance(best.candidate, getNearestPlayerDefender(best.candidate));
-  if (bestSpace > handlerSpace + 34) return best.candidate;
-  if (handlerSpace < 82 && bestSpace > 72) return best.candidate;
-  if ((state.cpuMoveStyle === "hesitate" || state.cpuMoveStyle === "swing") && bestSpace > 82) return best.candidate;
+  if (bestSpace > handlerSpace + 64) return best.candidate;
+  if (handlerSpace < 68 && bestSpace > 92) return best.candidate;
+  if (state.cpuMoveStyle === "swing" && bestSpace > 112) return best.candidate;
   return null;
 }
 
@@ -1369,10 +1393,10 @@ function getPassLaneSafety(from, to, defenders) {
 function getCpuPassUrgency(handler, target, handlerSpace) {
   const targetSpace = distance(target, getNearestPlayerDefender(target));
   const rimDistance = distance(handler, getAttackHoop("cpu"));
-  const pressure = handlerSpace < 76 ? 1.2 : 0.42;
-  const openBonus = targetSpace > 108 ? 0.9 : targetSpace > 86 ? 0.48 : 0;
-  const tempoBonus = state.cpuMoveStyle === "hesitate" || state.cpuMoveStyle === "stepback" ? 0.52 : 0.18;
-  const lateClock = state.cpuShotTimer < 0.35 && rimDistance > 190 ? 0.36 : 0;
+  const pressure = handlerSpace < 66 ? 0.86 : 0.18;
+  const openBonus = targetSpace > 128 ? 0.58 : targetSpace > 104 ? 0.28 : 0;
+  const tempoBonus = state.cpuMoveStyle === "swing" ? 0.44 : state.cpuMoveStyle === "stepback" ? 0.18 : 0.06;
+  const lateClock = state.shotClock < 7 && rimDistance > 190 ? 0.34 : 0;
   return pressure + openBonus + tempoBonus + lateClock;
 }
 
@@ -1656,6 +1680,7 @@ function updateParticles(dt) {
 }
 
 function updateHud() {
+  if (shotClockEl) shotClockEl.textContent = state.shotClock < 5 ? state.shotClock.toFixed(1) : Math.ceil(state.shotClock).toString();
   const focus = state.possession === "player" ? getPlayerHandler() : getCpuHandler();
   const marker = state.possession === "player" ? getNearestCpuDefender(focus) : getNearestPlayerDefender(focus);
   const space = distance(focus, marker);
