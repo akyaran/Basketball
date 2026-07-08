@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.7.8`
+Version: `0.7.9`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -50,6 +50,7 @@ http://localhost:4173/
 - In zone, the two shell defenders split high and low, and the nearest side always steps up to check the ball.
 - A 24-second shot clock now forces turnovers, off-ball offense roams wider, and CPU offense favors drives/cut-ins over passing.
 - The zone checker now leaves the shell aggressively and closes straight to the ball handler.
+- Settings can choose match length, the game clock declares a winner, CPU offense drives deeper, and ball checkers fight through screens better.
 
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 

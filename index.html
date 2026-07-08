@@ -37,6 +37,10 @@
 
       <section class="hud side-hud" aria-label="状態">
         <div>
+          <small>TIME</small>
+          <strong id="gameClock">2:00</strong>
+        </div>
+        <div>
           <small>SHOT</small>
           <strong id="shotReadout">Hold</strong>
         </div>
@@ -62,13 +66,13 @@
       </div>
 
       <div id="toast" class="toast">Ready</div>
-      <div id="versionBadge" class="version-badge">v0.7.8</div>
+      <div id="versionBadge" class="version-badge">v0.7.9</div>
 
       <section id="titleScreen" class="title-screen" aria-label="タイトル">
         <div class="title-panel">
           <p class="kicker">1v1 / 2v2 / 3v3 Prototype</p>
           <h1>Basketball</h1>
-          <p id="titleVersion" class="title-version">v0.7.8</p>
+          <p id="titleVersion" class="title-version">v0.7.9</p>
           <div class="title-actions">
             <button id="startButton" class="primary-button" type="button">START</button>
             <button id="settingsButton" class="secondary-button" type="button">SETTINGS</button>
@@ -104,6 +108,15 @@
             <span>Meter speed</span>
             <strong id="meterSpeedValue">70%</strong>
             <input id="meterSpeedSlider" type="range" min="0" max="100" value="70" />
+          </label>
+          <label class="select-row">
+            <span>Game time</span>
+            <select id="gameTimeSelect">
+              <option value="60">1:00</option>
+              <option value="120" selected>2:00</option>
+              <option value="180">3:00</option>
+              <option value="300">5:00</option>
+            </select>
           </label>
           <button id="resetSettingsButton" class="reset-button" type="button">RESET DEFAULTS</button>
         </div>

@@ -21,6 +21,7 @@ const mode3v3Button = document.getElementById("mode3v3Button");
 const defenseSlider = document.getElementById("defenseSlider");
 const distanceSlider = document.getElementById("distanceSlider");
 const meterSpeedSlider = document.getElementById("meterSpeedSlider");
+const gameTimeSelect = document.getElementById("gameTimeSelect");
 const defenseValue = document.getElementById("defenseValue");
 const distanceValue = document.getElementById("distanceValue");
 const meterSpeedValue = document.getElementById("meterSpeedValue");
@@ -35,14 +36,16 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
+const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.7.8";
+const APP_VERSION = "0.7.9";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
   distance: 0.65,
   meterSpeed: 0.7,
   players: "1v1",
+  gameSeconds: 120,
 };
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
@@ -73,6 +76,8 @@ const state = {
   cpuScore: 0,
   possession: "player",
   shotClock: 24,
+  gameClock: 120,
+  gameOver: false,
   cpuShotTimer: 0,
   cpuDrivePhase: 0,
   cpuMoveTimer: 0,
@@ -393,6 +398,7 @@ function loadSettings() {
     settings.defense = readSetting(saved.defense, DEFAULT_SETTINGS.defense);
     settings.distance = readSetting(saved.distance, DEFAULT_SETTINGS.distance);
     settings.meterSpeed = readSetting(saved.meterSpeed, DEFAULT_SETTINGS.meterSpeed);
+    settings.gameSeconds = readGameSeconds(saved.gameSeconds, DEFAULT_SETTINGS.gameSeconds);
     settings.players = saved.players === "3v3" ? "3v3" : saved.players === "2v2" ? "2v2" : "1v1";
   } catch (error) {
     Object.assign(settings, DEFAULT_SETTINGS);
@@ -404,10 +410,16 @@ function readSetting(value, fallback) {
   return Number.isFinite(parsed) ? clamp(parsed, 0, 1) : fallback;
 }
 
+function readGameSeconds(value, fallback) {
+  const parsed = Number(value);
+  return [60, 120, 180, 300].includes(parsed) ? parsed : fallback;
+}
+
 function applySettingsToControls() {
   defenseSlider.value = Math.round(settings.defense * 100);
   distanceSlider.value = Math.round(settings.distance * 100);
   meterSpeedSlider.value = Math.round(settings.meterSpeed * 100);
+  gameTimeSelect.value = String(settings.gameSeconds);
   mode1v1Button.classList.toggle("active", settings.players === "1v1");
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
   mode3v3Button.classList.toggle("active", settings.players === "3v3");
@@ -952,6 +964,12 @@ function update(dt) {
   const step = dt * slow;
   state.time += dt * 1000;
 
+  if (state.gameOver) {
+    updateParticles(step);
+    updateHud();
+    return;
+  }
+
   const keyX = (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0);
   const keyY = (keys.has("ArrowDown") || keys.has("KeyS") ? 1 : 0) - (keys.has("ArrowUp") || keys.has("KeyW") ? 1 : 0);
   const moveX = input.moveX || keyX;
@@ -960,6 +978,12 @@ function update(dt) {
   const dash = input.dash || keys.has("ShiftLeft") || keys.has("ShiftRight");
   const controlled = state.possession === "player" ? getPlayerHandler() : player;
   const speed = (dash && controlled.stamina > 0.12 ? 270 : 178) * (state.ball || state.passBall ? 0.88 : 1);
+
+  if (updateGameClock(step)) {
+    updateParticles(step);
+    updateHud();
+    return;
+  }
 
   if (updatePossessionTransition(step)) {
     updateParticles(step);
@@ -1023,6 +1047,31 @@ function updateShotClock(step) {
   showMessage("24 seconds");
   beginPossessionTransition(state.possession === "player" ? "cpu" : "player", handler.x, handler.y);
   return true;
+}
+
+function updateGameClock(step) {
+  if (!state.started || state.gameOver) return false;
+  state.gameClock = Math.max(0, state.gameClock - step);
+  if (state.gameClock > 0) return false;
+  finishGame();
+  return true;
+}
+
+function finishGame() {
+  state.gameOver = true;
+  state.ball = null;
+  state.passBall = null;
+  state.possessionTransition = null;
+  state.recoveryBall = null;
+  state.timingActive = false;
+  input.shootingId = null;
+  meter.classList.remove("show");
+  const result = state.playerScore === state.cpuScore
+    ? "Game over: Draw"
+    : state.playerScore > state.cpuScore
+      ? "Game over: You win"
+      : "Game over: CPU wins";
+  showMessage(`${result} ${state.playerScore}-${state.cpuScore}`);
 }
 
 function updateCpuDefense(step) {
@@ -1269,11 +1318,11 @@ function updateCpuOffense(step) {
   if (state.cpuMoveTimer <= 0) {
     const laneOpen = space > 96 || rimDistance < 180;
     const roll = Math.random();
-    state.cpuMoveStyle = laneOpen && roll > 0.22
+    state.cpuMoveStyle = laneOpen && roll > 0.12
       ? "drive"
-      : roll > 0.9
+      : roll > 0.94
         ? "swing"
-        : roll > 0.68
+        : roll > 0.76
         ? "stepback"
         : roll > 0.28
           ? "crossover"
@@ -1284,7 +1333,7 @@ function updateCpuOffense(step) {
 
   const side = Math.sin(state.cpuDrivePhase) + Math.sin(state.cpuDrivePhase * 1.9) * 0.34;
   const shake = state.cpuMoveStyle === "crossover" ? 146 : state.cpuMoveStyle === "hesitate" ? 38 : state.cpuMoveStyle === "swing" ? 112 : 86;
-  const push = state.cpuMoveStyle === "stepback" ? -78 : state.cpuMoveStyle === "drive" ? 142 : state.cpuMoveStyle === "swing" ? 26 : 82;
+  const push = state.cpuMoveStyle === "stepback" ? -58 : state.cpuMoveStyle === "drive" ? 178 : state.cpuMoveStyle === "swing" ? 34 : 106;
   const target = {
     x: handler.x + rimDir.x * push + sideDir.x * side * shake + Math.sin(state.time / 370 + handler.y * 0.013) * 12,
     y: handler.y + rimDir.y * push + sideDir.y * side * shake + Math.cos(state.time / 410 + handler.x * 0.011) * 10,
@@ -1296,6 +1345,10 @@ function updateCpuOffense(step) {
   } else if (space > 112 && rimDistance > 150) {
     target.x += rimDir.x * 48;
     target.y += rimDir.y * 48;
+  }
+  if (rimDistance > 205 && state.cpuMoveStyle !== "stepback") {
+    target.x += rimDir.x * 72;
+    target.y += rimDir.y * 72;
   }
 
   const tempoPulse = 0.74 + Math.max(0, Math.sin(state.cpuDrivePhase * 1.35)) * 0.55;
@@ -1309,7 +1362,7 @@ function updateCpuOffense(step) {
     updatePlayerHelpDefense(step, handler);
     const passTarget = getBestCpuPassTarget(handler, space);
     const passUrgency = passTarget ? getCpuPassUrgency(handler, passTarget, space) : 0;
-    const shouldPass = state.cpuMoveStyle !== "drive" && passTarget && (state.cpuMoveStyle === "swing" ? passUrgency > 1.1 : Math.random() < step * passUrgency);
+    const shouldPass = state.cpuMoveStyle !== "drive" && rimDistance > 185 && passTarget && (state.cpuMoveStyle === "swing" ? passUrgency > 1.15 : Math.random() < step * passUrgency * 0.72);
     if (shouldPass) passCpuBallTo(passTarget);
     if (state.passBall) return;
   }
@@ -1478,7 +1531,10 @@ function separateCharacters(a, b) {
   const nx = dx / d;
   const ny = dy / d;
   const block = getCollisionBlock(a, b);
-  const aPush = block.offense === a ? 0.72 + block.strength * 0.26 : block.offense === b ? 0.28 - block.strength * 0.26 : 0.5;
+  let aPush = block.offense === a ? 0.72 + block.strength * 0.26 : block.offense === b ? 0.28 - block.strength * 0.26 : 0.5;
+  if (block.defense && isCpuBallChecker(block.defense) && block.offense && block.offense !== getPlayerHandler()) {
+    aPush = block.offense === a ? 0.92 : 0.08;
+  }
   const bPush = 1 - aPush;
 
   a.x -= nx * overlap * aPush;
@@ -1496,6 +1552,16 @@ function separateCharacters(a, b) {
     block.defense.vx *= 1 - block.strength * 0.14;
     block.defense.vy *= 1 - block.strength * 0.14;
   }
+}
+
+function isCpuBallChecker(p) {
+  if (state.possession !== "player" || !isTwoOnTwo() || !getCpuTeam().includes(p)) return false;
+  const rimProtector = getCpuTeam()[0];
+  if (p === rimProtector) return false;
+  const hoop = getAttackHoop("player");
+  const zoneDefenders = getCpuTeam().filter((member) => member !== rimProtector);
+  const checkerIndex = zoneDefenders.length > 1 && getPlayerHandler().y > hoop.y ? 1 : 0;
+  return p === zoneDefenders[checkerIndex];
 }
 
 function getCollisionBlock(a, b) {
@@ -1549,6 +1615,8 @@ function syncSettings() {
   settings.defense = Number(defenseSlider.value) / 100;
   settings.distance = Number(distanceSlider.value) / 100;
   settings.meterSpeed = Number(meterSpeedSlider.value) / 100;
+  settings.gameSeconds = readGameSeconds(gameTimeSelect.value, DEFAULT_SETTINGS.gameSeconds);
+  if (!state.started || state.gameOver) state.gameClock = settings.gameSeconds;
   defenseValue.textContent = `${defenseSlider.value}%`;
   distanceValue.textContent = `${distanceSlider.value}%`;
   meterSpeedValue.textContent = `${meterSpeedSlider.value}%`;
@@ -1569,6 +1637,12 @@ function setPlayerMode(mode) {
 
 function startGame() {
   state.started = true;
+  state.gameOver = false;
+  state.gameClock = settings.gameSeconds;
+  state.playerScore = 0;
+  state.cpuScore = 0;
+  playerScoreEl.textContent = state.playerScore;
+  cpuScoreEl.textContent = state.cpuScore;
   titleScreen.hidden = true;
   settingsPanel.hidden = true;
   state.last = performance.now();
@@ -1578,6 +1652,7 @@ function startGame() {
 
 function returnToTitle() {
   state.started = false;
+  state.gameOver = false;
   state.ball = null;
   state.possessionTransition = null;
   state.recoveryBall = null;
@@ -1680,7 +1755,13 @@ function updateParticles(dt) {
 }
 
 function updateHud() {
+  if (gameClockEl) gameClockEl.textContent = formatGameClock(state.gameClock);
   if (shotClockEl) shotClockEl.textContent = state.shotClock < 5 ? state.shotClock.toFixed(1) : Math.ceil(state.shotClock).toString();
+  if (state.gameOver) {
+    spaceReadout.textContent = state.playerScore === state.cpuScore ? "Draw" : state.playerScore > state.cpuScore ? "You win" : "CPU wins";
+    shotReadout.textContent = "Game over";
+    return;
+  }
   const focus = state.possession === "player" ? getPlayerHandler() : getCpuHandler();
   const marker = state.possession === "player" ? getNearestCpuDefender(focus) : getNearestPlayerDefender(focus);
   const space = distance(focus, marker);
@@ -1706,6 +1787,13 @@ function updateHud() {
   if (!input.shootingId && !state.timingActive && player.cooldown <= 0) {
     shotReadout.textContent = state.mode === "aim" ? "Hold" : "Tap-hold";
   }
+}
+
+function formatGameClock(seconds) {
+  const safe = Math.max(0, Math.ceil(seconds));
+  const minutes = Math.floor(safe / 60);
+  const rest = safe % 60;
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
 }
 
 function drawCourt() {
@@ -2121,6 +2209,7 @@ settingsPanel.addEventListener("click", (event) => {
 defenseSlider.addEventListener("input", syncSettings);
 distanceSlider.addEventListener("input", syncSettings);
 meterSpeedSlider.addEventListener("input", syncSettings);
+gameTimeSelect.addEventListener("change", syncSettings);
 
 window.addEventListener("keydown", (event) => {
   keys.add(event.code);
