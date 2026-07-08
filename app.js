@@ -36,7 +36,7 @@ const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 
-const APP_VERSION = "0.7.7";
+const APP_VERSION = "0.7.8";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -1050,7 +1050,7 @@ function updateCpuZoneDefense(handler, step) {
     const target = offBalls[index % Math.max(1, offBalls.length)] || handler;
     const checkingBall = index === checkerIndex;
     const zoneSpot = getCpuPureZoneSpot(agent, target, handler, hoop, index, checkingBall);
-    moveZoneDefender(agent, zoneSpot, step, (checkingBall ? 4.55 : 3.65) + settings.defense * 2.05);
+    moveZoneDefender(agent, zoneSpot, step, (checkingBall ? 7.2 : 3.65) + settings.defense * (checkingBall ? 3.1 : 2.05));
   });
 }
 
@@ -1077,10 +1077,10 @@ function getCpuPureZoneSpot(agent, mark, handler, hoop, index, checkingBall) {
   const homeY = index % 2 === 0 ? upperY : lowerY;
   const jitter = getZoneJitter(agent, index + 1, checkingBall ? 10 : 15);
   if (checkingBall) {
-    const checkSpot = getFrontGuardSpot(handler, state.timingActive ? 58 : 76);
+    const checkSpot = getFrontGuardSpot(handler, state.timingActive ? 42 : 54);
     return {
-      x: clamp(checkSpot.x + jitter.x, hoop.x - 330, hoop.x - 74),
-      y: clamp(checkSpot.y * 0.72 + homeY * 0.28 + jitter.y, homeY - 92, homeY + 92),
+      x: clamp(checkSpot.x + jitter.x * 0.35, hoop.x - 360, hoop.x - 42),
+      y: clamp(checkSpot.y + jitter.y * 0.35, 92, court.h - 92),
     };
   }
   const wing = {
