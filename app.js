@@ -35,7 +35,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.7.5";
+const APP_VERSION = "0.7.6";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -1025,10 +1025,12 @@ function updateCpuZoneDefense(handler, step) {
 
   const offBalls = getPlayerOffBalls();
   const zoneDefenders = defense.filter((member) => member !== rimProtector);
+  const checkerIndex = zoneDefenders.length > 1 && handler.y > hoop.y ? 1 : 0;
   zoneDefenders.forEach((agent, index) => {
     const target = offBalls[index % Math.max(1, offBalls.length)] || handler;
-    const zoneSpot = getCpuPureZoneSpot(agent, target, handler, hoop, index);
-    moveZoneDefender(agent, zoneSpot, step, 3.85 + settings.defense * 2.05);
+    const checkingBall = index === checkerIndex;
+    const zoneSpot = getCpuPureZoneSpot(agent, target, handler, hoop, index, checkingBall);
+    moveZoneDefender(agent, zoneSpot, step, (checkingBall ? 4.55 : 3.65) + settings.defense * 2.05);
   });
 }
 
@@ -1048,23 +1050,26 @@ function moveCpuRimProtector(agent, handler, hoop, step) {
   moveZoneDefender(agent, spot, step, 4.3 + settings.defense * 2.6);
 }
 
-function getCpuPureZoneSpot(agent, mark, handler, hoop, index) {
+function getCpuPureZoneSpot(agent, mark, handler, hoop, index, checkingBall) {
   const lane = index % 2 === 0 ? -1 : 1;
-  const ballSide = handler.y < hoop.y ? -1 : 1;
-  const side = index === 0 ? ballSide : -ballSide;
-  const ballPressure = clamp((handler.x - (hoop.x - 420)) / 360, 0, 1);
-  const shell = {
-    x: clamp(handler.x * 0.42 + hoop.x * 0.58 - 28, hoop.x - 270, hoop.x - 94),
-    y: clamp(handler.y * 0.48 + hoop.y * 0.52 + side * 34, hoop.y - 178, hoop.y + 178),
-  };
+  const upperY = hoop.y - 172;
+  const lowerY = hoop.y + 172;
+  const homeY = index % 2 === 0 ? upperY : lowerY;
+  const jitter = getZoneJitter(agent, index + 1, checkingBall ? 10 : 15);
+  if (checkingBall) {
+    const checkSpot = getFrontGuardSpot(handler, state.timingActive ? 58 : 76);
+    return {
+      x: clamp(checkSpot.x + jitter.x, hoop.x - 330, hoop.x - 74),
+      y: clamp(checkSpot.y * 0.72 + homeY * 0.28 + jitter.y, homeY - 92, homeY + 92),
+    };
+  }
   const wing = {
-    x: clamp(mark.x * 0.28 + handler.x * 0.28 + hoop.x * 0.44, hoop.x - 300, hoop.x - 86),
-    y: clamp(mark.y * 0.34 + handler.y * 0.24 + hoop.y * 0.42 + lane * 26, hoop.y - 206, hoop.y + 206),
+    x: clamp(mark.x * 0.2 + handler.x * 0.18 + hoop.x * 0.62 - 10, hoop.x - 300, hoop.x - 78),
+    y: clamp(mark.y * 0.28 + homeY * 0.58 + handler.y * 0.14, homeY - 78, homeY + 78),
   };
-  const jitter = getZoneJitter(agent, index + 1, 13);
   return {
-    x: clamp(shell.x * ballPressure + wing.x * (1 - ballPressure) + jitter.x, 130, court.w - 130),
-    y: clamp(shell.y * ballPressure + wing.y * (1 - ballPressure) + jitter.y, 92, court.h - 92),
+    x: clamp(wing.x + jitter.x, 130, court.w - 130),
+    y: clamp(wing.y + lane * 10 + jitter.y, 92, court.h - 92),
   };
 }
 

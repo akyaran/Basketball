@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.7.5`
+Version: `0.7.6`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -47,6 +47,7 @@ http://localhost:4173/
 - Team defense now assigns on-ball, help, and gap roles each frame, while CPU offense uses wider spacing, swing passes, and safer pass-lane reads.
 - CPU offense now estimates shot value before shooting, avoids low-value deep attempts, adds subtle random movement, and CPU defense shades into a stronger zone.
 - CPU defense is now a full zone with one rim protector parked under the hoop, two shell defenders, and subtle positional jitter.
+- In zone, the two shell defenders split high and low, and the nearest side always steps up to check the ball.
 
 The timing green zone shrinks aggressively when the shot is farther from the rim, when the defender is close at shot start, when the defender closes out during the hold, and while the player waits with the shot held.
 
