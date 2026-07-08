@@ -35,7 +35,7 @@ const spaceReadout = document.getElementById("spaceReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 
-const APP_VERSION = "0.7.4";
+const APP_VERSION = "0.7.5";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -1017,24 +1017,68 @@ function updateCpuDefense(step) {
 
 function updateCpuZoneDefense(handler, step) {
   const defense = getCpuTeam();
-  const primary = getPrimaryDefender(handler, defense);
-  guardPlayer(primary, handler, step, state.timingActive ? 1.34 : 1.08, { cushion: state.timingActive ? 62 : 82 });
+  const hoop = getAttackHoop("player");
+  const rimProtector = defense[0];
+  moveCpuRimProtector(rimProtector, handler, hoop, step);
 
   if (!isTwoOnTwo()) return;
 
-  const hoop = getAttackHoop("player");
   const offBalls = getPlayerOffBalls();
-  const help = getZoneHelpDefender(primary, handler, defense);
-  if (help) moveHelpDefender(help, handler, step, state.timingActive ? 1.55 : 1.34);
-
-  const zoneDefenders = defense.filter((member) => member !== primary && member !== help);
+  const zoneDefenders = defense.filter((member) => member !== rimProtector);
   zoneDefenders.forEach((agent, index) => {
     const target = offBalls[index % Math.max(1, offBalls.length)] || handler;
-    const zoneSpot = getCpuZoneSpot(agent, target, handler, hoop, index);
-    agent.vx += (zoneSpot.x - agent.x) * (3.35 + settings.defense * 1.8) * step;
-    agent.vy += (zoneSpot.y - agent.y) * (3.35 + settings.defense * 1.8) * step;
-    moveCharacter(agent, step);
+    const zoneSpot = getCpuPureZoneSpot(agent, target, handler, hoop, index);
+    moveZoneDefender(agent, zoneSpot, step, 3.85 + settings.defense * 2.05);
   });
+}
+
+function moveCpuRimProtector(agent, handler, hoop, step) {
+  const rimDistance = distance(handler, hoop);
+  const driveSpot = getFrontGuardSpot(handler, state.timingActive ? 58 : 72);
+  const base = {
+    x: hoop.x - (rimDistance < 210 ? 74 : 58),
+    y: hoop.y,
+  };
+  const pressure = clamp((250 - rimDistance) / 170, 0, 1);
+  const jitter = getZoneJitter(agent, 0, 9);
+  const spot = {
+    x: clamp(base.x * (1 - pressure) + driveSpot.x * pressure + jitter.x, hoop.x - 128, hoop.x - 38),
+    y: clamp(base.y * (1 - pressure) + driveSpot.y * pressure + jitter.y, hoop.y - 104, hoop.y + 104),
+  };
+  moveZoneDefender(agent, spot, step, 4.3 + settings.defense * 2.6);
+}
+
+function getCpuPureZoneSpot(agent, mark, handler, hoop, index) {
+  const lane = index % 2 === 0 ? -1 : 1;
+  const ballSide = handler.y < hoop.y ? -1 : 1;
+  const side = index === 0 ? ballSide : -ballSide;
+  const ballPressure = clamp((handler.x - (hoop.x - 420)) / 360, 0, 1);
+  const shell = {
+    x: clamp(handler.x * 0.42 + hoop.x * 0.58 - 28, hoop.x - 270, hoop.x - 94),
+    y: clamp(handler.y * 0.48 + hoop.y * 0.52 + side * 34, hoop.y - 178, hoop.y + 178),
+  };
+  const wing = {
+    x: clamp(mark.x * 0.28 + handler.x * 0.28 + hoop.x * 0.44, hoop.x - 300, hoop.x - 86),
+    y: clamp(mark.y * 0.34 + handler.y * 0.24 + hoop.y * 0.42 + lane * 26, hoop.y - 206, hoop.y + 206),
+  };
+  const jitter = getZoneJitter(agent, index + 1, 13);
+  return {
+    x: clamp(shell.x * ballPressure + wing.x * (1 - ballPressure) + jitter.x, 130, court.w - 130),
+    y: clamp(shell.y * ballPressure + wing.y * (1 - ballPressure) + jitter.y, 92, court.h - 92),
+  };
+}
+
+function moveZoneDefender(agent, spot, step, speed) {
+  agent.vx += (spot.x - agent.x) * speed * step;
+  agent.vy += (spot.y - agent.y) * speed * step;
+  moveCharacter(agent, step);
+}
+
+function getZoneJitter(agent, seed, amount) {
+  return {
+    x: Math.sin(state.time / 520 + seed * 1.7 + agent.y * 0.017) * amount,
+    y: Math.cos(state.time / 610 + seed * 1.3 + agent.x * 0.013) * amount,
+  };
 }
 
 function getZoneHelpDefender(primary, handler, defenseTeam) {
