@@ -44,7 +44,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.1";
+const APP_VERSION = "0.8.2";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -235,16 +235,19 @@ function resize() {
 function updateViewSize(usableW = state.w, usableH = state.h) {
   const aspect = usableW / Math.max(1, usableH);
   const bounds = getCameraBounds();
-  const zoomPad = 88 + settings.cameraZoom * 150;
+  const zoomPad = 34 + settings.cameraZoom * 92;
   const minHalfW = court.w * 0.5 + 38;
-  const desiredW = Math.max(bounds.w + zoomPad * 2, minHalfW);
-  const desiredH = bounds.h + zoomPad * 2;
+  const desiredW = clamp(Math.max(bounds.w + zoomPad * 2, minHalfW), minHalfW, court.w);
+  const desiredH = clamp(bounds.h + zoomPad * 2, Math.min(360, court.h), court.h);
   state.viewW = clamp(Math.max(desiredW, desiredH * aspect), minHalfW, court.w);
-  state.viewH = clamp(state.viewW / Math.max(0.8, aspect), desiredH, court.h);
-  if (state.viewH >= court.h) state.viewW = Math.min(court.w, state.viewH * aspect);
+  state.viewH = state.viewW / Math.max(0.8, aspect);
+  if (state.viewH < desiredH) {
+    state.viewH = desiredH;
+    state.viewW = Math.min(court.w, state.viewH * aspect);
+  }
   state.scale = Math.min(usableW / state.viewW, usableH / state.viewH);
-  state.viewW = Math.min(court.w, usableW / state.scale);
-  state.viewH = Math.min(court.h, usableH / state.scale);
+  state.viewW = usableW / state.scale;
+  state.viewH = usableH / state.scale;
 }
 
 function worldToScreen(p) {

@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.8.1`
+Version: `0.8.2`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -34,7 +34,7 @@ http://localhost:4173/
 - Player and CPU sprites use the same base artwork, with the player recolored to yellow and the ball drawn only while possessed.
 - Defenders face the ball or ball handler, while the offensive player faces the hoop.
 - CPU offense uses crossovers, hesitations, bursts, drives, and close-range finishes.
-- The camera auto-zooms to keep every active character visible while always including at least the attacking half court.
+- The camera auto-zooms to keep every active character visible while always including at least the attacking half court, without shrinking the court below the screen-filling play view.
 - Near the rim, push the stick toward the hoop and press SHOT with enough space to trigger a layup or dunk.
 - Settings can switch between 1on1, 2on2, and 3on3. PASS cycles the ball handler through teammates and both teams move off ball.
 - Dunks trigger stronger screen shake, rim bursts, and a ring shock effect.
