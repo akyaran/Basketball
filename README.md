@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.8.0`
+Version: `0.8.1`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -25,7 +25,7 @@ http://localhost:4173/
 - SHOT in TIMING mode: hold, release when the needle hits the green zone
 - SHOT in AIM mode: hold, pull to aim and set power, release
 - SLOW ON/OFF: toggles shot slow motion for A/B testing
-- Settings: tune defense effect, distance effect, and meter speed before starting
+- Settings: tune defense effect, distance effect, meter speed, character size, movement speed, camera zoom, and game time before starting
 - HOME: return to the title screen during play
 - Reset Defaults: restore the tuning sliders to their default values
 - After a player make or miss, possession switches to CPU offense and the player defends.
@@ -34,6 +34,7 @@ http://localhost:4173/
 - Player and CPU sprites use the same base artwork, with the player recolored to yellow and the ball drawn only while possessed.
 - Defenders face the ball or ball handler, while the offensive player faces the hoop.
 - CPU offense uses crossovers, hesitations, bursts, drives, and close-range finishes.
+- The camera auto-zooms to keep every active character visible while always including at least the attacking half court.
 - Near the rim, push the stick toward the hoop and press SHOT with enough space to trigger a layup or dunk.
 - Settings can switch between 1on1, 2on2, and 3on3. PASS cycles the ball handler through teammates and both teams move off ball.
 - Dunks trigger stronger screen shake, rim bursts, and a ring shock effect.

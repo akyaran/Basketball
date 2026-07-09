@@ -444,6 +444,9 @@ button {
 
 .settings-sheet {
   padding: 20px;
+  max-height: min(720px, calc(100dvh - 36px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .settings-head {

@@ -21,10 +21,16 @@ const mode3v3Button = document.getElementById("mode3v3Button");
 const defenseSlider = document.getElementById("defenseSlider");
 const distanceSlider = document.getElementById("distanceSlider");
 const meterSpeedSlider = document.getElementById("meterSpeedSlider");
+const characterSizeSlider = document.getElementById("characterSizeSlider");
+const moveSpeedSlider = document.getElementById("moveSpeedSlider");
+const cameraZoomSlider = document.getElementById("cameraZoomSlider");
 const gameTimeSelect = document.getElementById("gameTimeSelect");
 const defenseValue = document.getElementById("defenseValue");
 const distanceValue = document.getElementById("distanceValue");
 const meterSpeedValue = document.getElementById("meterSpeedValue");
+const characterSizeValue = document.getElementById("characterSizeValue");
+const moveSpeedValue = document.getElementById("moveSpeedValue");
+const cameraZoomValue = document.getElementById("cameraZoomValue");
 const meter = document.getElementById("meter");
 const sweet = document.querySelector(".sweet");
 const needle = document.getElementById("needle");
@@ -38,15 +44,20 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.0";
+const APP_VERSION = "0.8.1";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
   distance: 0.65,
   meterSpeed: 0.7,
+  characterSize: 0.38,
+  moveSpeed: 0.55,
+  cameraZoom: 0.48,
   players: "1v1",
   gameSeconds: 120,
 };
+const BASE_PLAYER_RADIUS = 21;
+const BASE_CPU_RADIUS = 23;
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
 const input = {
@@ -215,16 +226,25 @@ function resize() {
   const margin = state.w < 760 ? 10 : 18;
   const usableH = state.h - margin * 2;
   const usableW = state.w - margin * 2;
-  const targetViewW = state.w < 760 ? 700 : 660;
-  const aspect = usableW / Math.max(1, usableH);
-  state.viewW = Math.min(court.w, targetViewW);
-  state.viewH = Math.min(court.h, state.viewW / Math.max(0.8, aspect));
-  state.scale = Math.min(usableW / state.viewW, usableH / state.viewH);
-  state.viewW = usableW / state.scale;
-  state.viewH = usableH / state.scale;
+  updateViewSize(usableW, usableH);
   court.x = margin;
   court.y = margin;
   updateCamera(true);
+}
+
+function updateViewSize(usableW = state.w, usableH = state.h) {
+  const aspect = usableW / Math.max(1, usableH);
+  const bounds = getCameraBounds();
+  const zoomPad = 88 + settings.cameraZoom * 150;
+  const minHalfW = court.w * 0.5 + 38;
+  const desiredW = Math.max(bounds.w + zoomPad * 2, minHalfW);
+  const desiredH = bounds.h + zoomPad * 2;
+  state.viewW = clamp(Math.max(desiredW, desiredH * aspect), minHalfW, court.w);
+  state.viewH = clamp(state.viewW / Math.max(0.8, aspect), desiredH, court.h);
+  if (state.viewH >= court.h) state.viewW = Math.min(court.w, state.viewH * aspect);
+  state.scale = Math.min(usableW / state.viewW, usableH / state.viewH);
+  state.viewW = Math.min(court.w, usableW / state.scale);
+  state.viewH = Math.min(court.h, usableH / state.scale);
 }
 
 function worldToScreen(p) {
@@ -235,24 +255,62 @@ function worldToScreen(p) {
 }
 
 function updateCamera(force = false) {
-  const focus = getCameraFocus();
-  const targetX = clamp(focus.x - state.viewW * 0.5, 0, Math.max(0, court.w - state.viewW));
-  const targetY = clamp(focus.y - state.viewH * 0.5, 0, Math.max(0, court.h - state.viewH));
+  const margin = state.w < 760 ? 10 : 18;
+  updateViewSize(state.w - margin * 2, state.h - margin * 2);
+  const bounds = getCameraBounds();
+  const focus = getCameraFocus(bounds);
+  const minX = clamp(bounds.maxX - state.viewW, 0, Math.max(0, court.w - state.viewW));
+  const maxX = clamp(bounds.minX, 0, Math.max(0, court.w - state.viewW));
+  const minY = clamp(bounds.maxY - state.viewH, 0, Math.max(0, court.h - state.viewH));
+  const maxY = clamp(bounds.minY, 0, Math.max(0, court.h - state.viewH));
+  const targetX = clamp(focus.x - state.viewW * 0.5, Math.min(minX, maxX), Math.max(minX, maxX));
+  const targetY = clamp(focus.y - state.viewH * 0.5, Math.min(minY, maxY), Math.max(minY, maxY));
   const follow = force ? 1 : 0.14;
   state.cameraX += (targetX - state.cameraX) * follow;
   state.cameraY += (targetY - state.cameraY) * follow;
 }
 
-function getCameraFocus() {
+function getCameraFocus(bounds = getCameraBounds()) {
   if (state.ball) return { x: state.ball.x, y: state.ball.y };
   if (state.passBall) return { x: state.passBall.x, y: state.passBall.y };
   if (state.recoveryBall) return { x: state.recoveryBall.x, y: state.recoveryBall.y };
   const handler = state.possession === "player" ? getPlayerHandler() : getCpuHandler();
   const hoop = getAttackHoop(state.possession);
   return {
-    x: handler.x * 0.68 + hoop.x * 0.32,
-    y: handler.y * 0.74 + hoop.y * 0.26,
+    x: handler.x * 0.52 + hoop.x * 0.24 + ((bounds.minX + bounds.maxX) * 0.5) * 0.24,
+    y: handler.y * 0.62 + hoop.y * 0.18 + ((bounds.minY + bounds.maxY) * 0.5) * 0.2,
   };
+}
+
+function getCameraBounds() {
+  const subjects = getActiveCharacters();
+  if (state.ball) subjects.push(state.ball);
+  if (state.passBall) subjects.push(state.passBall);
+  if (state.recoveryBall) subjects.push(state.recoveryBall);
+  const attackHoop = getAttackHoop(state.possession);
+  const half = getHalfCourtBounds(attackHoop);
+  let minX = half.minX;
+  let maxX = half.maxX;
+  let minY = half.minY;
+  let maxY = half.maxY;
+  for (const p of subjects) {
+    const pad = (p.r || 16) + 28;
+    minX = Math.min(minX, p.x - pad);
+    maxX = Math.max(maxX, p.x + pad);
+    minY = Math.min(minY, p.y - pad);
+    maxY = Math.max(maxY, p.y + pad);
+  }
+  minX = clamp(minX, 0, court.w);
+  maxX = clamp(maxX, 0, court.w);
+  minY = clamp(minY, 0, court.h);
+  maxY = clamp(maxY, 0, court.h);
+  return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY };
+}
+
+function getHalfCourtBounds(hoop) {
+  return hoop === court.rightHoop
+    ? { minX: court.w * 0.5, maxX: court.w, minY: 0, maxY: court.h }
+    : { minX: 0, maxX: court.w * 0.5, minY: 0, maxY: court.h };
 }
 
 function clamp(value, min, max) {
@@ -423,6 +481,9 @@ function loadSettings() {
     settings.defense = readSetting(saved.defense, DEFAULT_SETTINGS.defense);
     settings.distance = readSetting(saved.distance, DEFAULT_SETTINGS.distance);
     settings.meterSpeed = readSetting(saved.meterSpeed, DEFAULT_SETTINGS.meterSpeed);
+    settings.characterSize = readSetting(saved.characterSize, DEFAULT_SETTINGS.characterSize);
+    settings.moveSpeed = readSetting(saved.moveSpeed, DEFAULT_SETTINGS.moveSpeed);
+    settings.cameraZoom = readSetting(saved.cameraZoom, DEFAULT_SETTINGS.cameraZoom);
     settings.gameSeconds = readGameSeconds(saved.gameSeconds, DEFAULT_SETTINGS.gameSeconds);
     settings.players = saved.players === "3v3" ? "3v3" : saved.players === "2v2" ? "2v2" : "1v1";
   } catch (error) {
@@ -444,10 +505,27 @@ function applySettingsToControls() {
   defenseSlider.value = Math.round(settings.defense * 100);
   distanceSlider.value = Math.round(settings.distance * 100);
   meterSpeedSlider.value = Math.round(settings.meterSpeed * 100);
+  characterSizeSlider.value = Math.round(settings.characterSize * 100);
+  moveSpeedSlider.value = Math.round(settings.moveSpeed * 100);
+  cameraZoomSlider.value = Math.round(settings.cameraZoom * 100);
   gameTimeSelect.value = String(settings.gameSeconds);
   mode1v1Button.classList.toggle("active", settings.players === "1v1");
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
   mode3v3Button.classList.toggle("active", settings.players === "3v3");
+}
+
+function getCharacterScale() {
+  return 0.76 + settings.characterSize * 0.42;
+}
+
+function getMoveSpeedScale() {
+  return 0.82 + settings.moveSpeed * 0.48;
+}
+
+function applyCharacterSettings() {
+  const scale = getCharacterScale();
+  for (const p of getPlayerTeam()) p.r = BASE_PLAYER_RADIUS * scale;
+  for (const p of getCpuTeam()) p.r = BASE_CPU_RADIUS * scale;
 }
 
 function resetPossession(scoredByPlayer) {
@@ -1002,7 +1080,7 @@ function update(dt) {
   const moving = Math.hypot(moveX, moveY);
   const dash = input.dash || keys.has("ShiftLeft") || keys.has("ShiftRight");
   const controlled = state.possession === "player" ? getPlayerHandler() : player;
-  const speed = (dash && controlled.stamina > 0.12 ? 270 : 178) * (state.ball || state.passBall ? 0.88 : 1);
+  const speed = (dash && controlled.stamina > 0.12 ? 270 : 178) * getMoveSpeedScale() * (state.ball || state.passBall ? 0.88 : 1);
 
   if (updateGameClock(step)) {
     updateParticles(step);
@@ -1168,8 +1246,9 @@ function getCpuPureZoneSpot(agent, mark, handler, hoop, index, checkingBall) {
 }
 
 function moveZoneDefender(agent, spot, step, speed) {
-  agent.vx += (spot.x - agent.x) * speed * step;
-  agent.vy += (spot.y - agent.y) * speed * step;
+  const tunedSpeed = speed * getMoveSpeedScale();
+  agent.vx += (spot.x - agent.x) * tunedSpeed * step;
+  agent.vy += (spot.y - agent.y) * tunedSpeed * step;
   moveCharacter(agent, step);
 }
 
@@ -1272,8 +1351,9 @@ function guardPlayer(agent, target, step, pressure = 1, options = {}) {
   const spacing = distance(target, agent);
   const chase = spacing > cushion + 22 ? 1.08 : 0.48;
   const defenderSpeed = 3.45 + settings.defense * 4.1;
-  agent.vx += (guardSpot.x - agent.x) * defenderSpeed * step * chase * guardPressure * pressure;
-  agent.vy += (guardSpot.y - agent.y) * defenderSpeed * step * chase * guardPressure * pressure;
+  const tunedSpeed = defenderSpeed * getMoveSpeedScale();
+  agent.vx += (guardSpot.x - agent.x) * tunedSpeed * step * chase * guardPressure * pressure;
+  agent.vy += (guardSpot.y - agent.y) * tunedSpeed * step * chase * guardPressure * pressure;
   moveCharacter(agent, step);
 }
 
@@ -1290,7 +1370,7 @@ function getFrontGuardSpot(target, cushion) {
 
 function moveHelpDefender(agent, handler, step, pressure = 1) {
   const spot = getFrontGuardSpot(handler, 104);
-  const speed = 5.15 + settings.defense * 2.5;
+  const speed = (5.15 + settings.defense * 2.5) * getMoveSpeedScale();
   agent.vx += (spot.x - agent.x) * speed * step * pressure;
   agent.vy += (spot.y - agent.y) * speed * step * pressure;
   moveCharacter(agent, step);
@@ -1316,8 +1396,9 @@ function moveOffBallPlayer(agent, handler, step, index = 0) {
     x: clamp(handler.x + 112 + roam * 58 - index * 34, 250, hoop.x - 92),
     y: clamp(hoop.y + lane * (154 + index * 34) + lift * 42, 102, court.h - 102),
   };
-  agent.vx += (target.x - agent.x) * 2.65 * step;
-  agent.vy += (target.y - agent.y) * 2.65 * step;
+  const speed = 2.65 * getMoveSpeedScale();
+  agent.vx += (target.x - agent.x) * speed * step;
+  agent.vy += (target.y - agent.y) * speed * step;
   moveCharacter(agent, step);
 }
 
@@ -1377,7 +1458,7 @@ function updateCpuOffense(step) {
   }
 
   const tempoPulse = 0.74 + Math.max(0, Math.sin(state.cpuDrivePhase * 1.35)) * 0.55;
-  const cpuSpeed = (4.8 + settings.defense * 1.2) * state.cpuBurst * tempoPulse;
+  const cpuSpeed = (4.8 + settings.defense * 1.2) * state.cpuBurst * tempoPulse * getMoveSpeedScale();
   handler.vx += (target.x - handler.x) * cpuSpeed * step;
   handler.vy += (target.y - handler.y) * cpuSpeed * step;
   moveCharacter(handler, step);
@@ -1407,8 +1488,9 @@ function moveCpuOffBall(step, handler) {
   const offBalls = getCpuOffBalls();
   offBalls.forEach((offBall, index) => {
     const target = getCpuSpacingSpot(offBall, handler, index);
-    offBall.vx += (target.x - offBall.x) * 3.35 * step;
-    offBall.vy += (target.y - offBall.y) * 3.35 * step;
+    const speed = 3.35 * getMoveSpeedScale();
+    offBall.vx += (target.x - offBall.x) * speed * step;
+    offBall.vy += (target.y - offBall.y) * speed * step;
     moveCharacter(offBall, step);
   });
 }
@@ -1489,7 +1571,7 @@ function updatePlayerHelpDefense(step, handler) {
 function moveOffBallDefender(agent, target, step, pressure = 1, ballHandler = null, onBall = false) {
   if (!isTwoOnTwo()) return;
   const guardSpot = onBall ? getFrontGuardSpot(target, 92) : getZoneGuardSpot(target, ballHandler);
-  const speed = onBall ? 3.9 : 2.95;
+  const speed = (onBall ? 3.9 : 2.95) * getMoveSpeedScale();
   agent.vx += (guardSpot.x - agent.x) * speed * step * pressure;
   agent.vy += (guardSpot.y - agent.y) * speed * step * pressure;
   moveCharacter(agent, step);
@@ -1640,15 +1722,23 @@ function syncSettings() {
   settings.defense = Number(defenseSlider.value) / 100;
   settings.distance = Number(distanceSlider.value) / 100;
   settings.meterSpeed = Number(meterSpeedSlider.value) / 100;
+  settings.characterSize = Number(characterSizeSlider.value) / 100;
+  settings.moveSpeed = Number(moveSpeedSlider.value) / 100;
+  settings.cameraZoom = Number(cameraZoomSlider.value) / 100;
   settings.gameSeconds = readGameSeconds(gameTimeSelect.value, DEFAULT_SETTINGS.gameSeconds);
   if (!state.started || state.gameOver) state.gameClock = settings.gameSeconds;
   defenseValue.textContent = `${defenseSlider.value}%`;
   distanceValue.textContent = `${distanceSlider.value}%`;
   meterSpeedValue.textContent = `${meterSpeedSlider.value}%`;
+  characterSizeValue.textContent = `${characterSizeSlider.value}%`;
+  moveSpeedValue.textContent = `${moveSpeedSlider.value}%`;
+  cameraZoomValue.textContent = `${cameraZoomSlider.value}%`;
   mode1v1Button.classList.toggle("active", settings.players === "1v1");
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
   mode3v3Button.classList.toggle("active", settings.players === "3v3");
   passButton.hidden = getPlayerCount() < 2;
+  applyCharacterSettings();
+  if (state.w > 0 && state.h > 0) updateCamera(true);
   if (state.timingActive) updateTimingZone();
   saveSettings();
 }
@@ -1960,7 +2050,7 @@ function drawCharacter(p, isPlayer) {
     : assets.cpu;
 
   if (imageReady(sprite)) {
-    const targetMax = 76;
+    const targetMax = p.r * 3.45;
     const scale = targetMax / Math.max(sprite.naturalWidth, sprite.naturalHeight);
     const targetW = sprite.naturalWidth * scale;
     const targetH = sprite.naturalHeight * scale;
@@ -2020,16 +2110,19 @@ function getCharacterFacingTarget(p, isPlayer) {
 
 function drawCarriedBall(p) {
   ctx.fillStyle = "#c96536";
+  const ballRadius = p.r * 0.48;
+  const ballX = p.x + p.r * 0.86;
+  const ballY = p.y - p.r * 0.86;
   ctx.beginPath();
-  ctx.arc(p.x + 18, p.y - 18, 10, 0, Math.PI * 2);
+  ctx.arc(ballX, ballY, ballRadius, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = "rgba(23, 19, 11, 0.32)";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(p.x + 8, p.y - 18);
-  ctx.lineTo(p.x + 28, p.y - 18);
-  ctx.moveTo(p.x + 18, p.y - 28);
-  ctx.lineTo(p.x + 18, p.y - 8);
+  ctx.moveTo(ballX - ballRadius, ballY);
+  ctx.lineTo(ballX + ballRadius, ballY);
+  ctx.moveTo(ballX, ballY - ballRadius);
+  ctx.lineTo(ballX, ballY + ballRadius);
   ctx.stroke();
 }
 
@@ -2236,6 +2329,9 @@ settingsPanel.addEventListener("click", (event) => {
 defenseSlider.addEventListener("input", syncSettings);
 distanceSlider.addEventListener("input", syncSettings);
 meterSpeedSlider.addEventListener("input", syncSettings);
+characterSizeSlider.addEventListener("input", syncSettings);
+moveSpeedSlider.addEventListener("input", syncSettings);
+cameraZoomSlider.addEventListener("input", syncSettings);
 gameTimeSelect.addEventListener("change", syncSettings);
 
 window.addEventListener("keydown", (event) => {
