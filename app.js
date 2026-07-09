@@ -44,7 +44,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.8";
+const APP_VERSION = "0.8.9";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -1262,7 +1262,7 @@ function updateCpuZoneDefense(handler, step) {
     const target = offBalls[index % Math.max(1, offBalls.length)] || handler;
     const checkingBall = index === checkerIndex;
     const zoneSpot = getCpuPureZoneSpot(agent, target, handler, hoop, index, checkingBall);
-    moveZoneDefender(agent, zoneSpot, step, (checkingBall ? 7.2 : 3.65) + settings.defense * (checkingBall ? 3.1 : 2.05));
+    moveZoneDefender(agent, zoneSpot, step, (checkingBall ? 5.6 : 3.25) + settings.defense * (checkingBall ? 2.25 : 1.55));
   });
 }
 
@@ -1279,7 +1279,7 @@ function moveCpuRimProtector(agent, handler, hoop, step) {
     x: clamp(base.x * (1 - pressure) + driveSpot.x * pressure + jitter.x, hoop.x - 128, hoop.x - 38),
     y: clamp(base.y * (1 - pressure) + driveSpot.y * pressure + jitter.y, hoop.y - 104, hoop.y + 104),
   };
-  moveZoneDefender(agent, spot, step, 4.3 + settings.defense * 2.6);
+  moveZoneDefender(agent, spot, step, 3.7 + settings.defense * 1.85);
 }
 
 function getCpuPureZoneSpot(agent, mark, handler, hoop, index, checkingBall) {
@@ -1306,7 +1306,7 @@ function getCpuPureZoneSpot(agent, mark, handler, hoop, index, checkingBall) {
 }
 
 function moveZoneDefender(agent, spot, step, speed) {
-  const tunedSpeed = speed * getMoveSpeedScale();
+  const tunedSpeed = Math.min(speed * getMoveSpeedScale(), 8.2);
   agent.vx += (spot.x - agent.x) * tunedSpeed * step;
   agent.vy += (spot.y - agent.y) * tunedSpeed * step;
   moveCharacter(agent, step);
@@ -1493,32 +1493,32 @@ function updateCpuOffense(step) {
         : roll > 0.28
           ? "crossover"
           : "hesitate";
-    state.cpuMoveTimer = 0.34 + Math.random() * 0.56;
-    state.cpuBurst = state.cpuMoveStyle === "drive" ? 1.55 : state.cpuMoveStyle === "hesitate" ? 0.38 : state.cpuMoveStyle === "swing" ? 0.68 : 1.04;
+    state.cpuMoveTimer = 0.42 + Math.random() * 0.62;
+    state.cpuBurst = state.cpuMoveStyle === "drive" ? 1.24 : state.cpuMoveStyle === "hesitate" ? 0.42 : state.cpuMoveStyle === "swing" ? 0.62 : 0.9;
   }
 
   const side = Math.sin(state.cpuDrivePhase) + Math.sin(state.cpuDrivePhase * 1.9) * 0.34;
-  const shake = state.cpuMoveStyle === "crossover" ? 146 : state.cpuMoveStyle === "hesitate" ? 38 : state.cpuMoveStyle === "swing" ? 112 : 86;
-  const push = state.cpuMoveStyle === "stepback" ? -58 : state.cpuMoveStyle === "drive" ? 178 : state.cpuMoveStyle === "swing" ? 34 : 106;
+  const shake = state.cpuMoveStyle === "crossover" ? 118 : state.cpuMoveStyle === "hesitate" ? 34 : state.cpuMoveStyle === "swing" ? 96 : 74;
+  const push = state.cpuMoveStyle === "stepback" ? -50 : state.cpuMoveStyle === "drive" ? 142 : state.cpuMoveStyle === "swing" ? 30 : 88;
   const target = {
     x: handler.x + rimDir.x * push + sideDir.x * side * shake + Math.sin(state.time / 370 + handler.y * 0.013) * 12,
     y: handler.y + rimDir.y * push + sideDir.y * side * shake + Math.cos(state.time / 410 + handler.x * 0.011) * 10,
   };
 
   if (space < 86 && state.cpuMoveStyle !== "drive") {
-    target.x += (handler.x - primaryDefender.x) * 0.82;
-    target.y += (handler.y - primaryDefender.y) * 0.82;
+    target.x += (handler.x - primaryDefender.x) * 0.64;
+    target.y += (handler.y - primaryDefender.y) * 0.64;
   } else if (space > 112 && rimDistance > 150) {
     target.x += rimDir.x * 48;
     target.y += rimDir.y * 48;
   }
   if (rimDistance > 205 && state.cpuMoveStyle !== "stepback") {
-    target.x += rimDir.x * 72;
-    target.y += rimDir.y * 72;
+    target.x += rimDir.x * 54;
+    target.y += rimDir.y * 54;
   }
 
-  const tempoPulse = 0.74 + Math.max(0, Math.sin(state.cpuDrivePhase * 1.35)) * 0.55;
-  const cpuSpeed = (4.8 + settings.defense * 1.2) * state.cpuBurst * tempoPulse * getMoveSpeedScale();
+  const tempoPulse = 0.78 + Math.max(0, Math.sin(state.cpuDrivePhase * 1.15)) * 0.34;
+  const cpuSpeed = Math.min((3.85 + settings.defense * 0.72) * state.cpuBurst * tempoPulse * getMoveSpeedScale(), 7.1);
   handler.vx += (target.x - handler.x) * cpuSpeed * step;
   handler.vy += (target.y - handler.y) * cpuSpeed * step;
   moveCharacter(handler, step);
@@ -1548,7 +1548,7 @@ function moveCpuOffBall(step, handler) {
   const offBalls = getCpuOffBalls();
   offBalls.forEach((offBall, index) => {
     const target = getCpuSpacingSpot(offBall, handler, index);
-    const speed = 3.35 * getMoveSpeedScale();
+    const speed = 2.75 * getMoveSpeedScale();
     offBall.vx += (target.x - offBall.x) * speed * step;
     offBall.vy += (target.y - offBall.y) * speed * step;
     moveCharacter(offBall, step);
