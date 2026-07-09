@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.8.2`
+Version: `0.8.3`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -31,6 +31,7 @@ http://localhost:4173/
 - After a player make or miss, possession switches to CPU offense and the player defends.
 - Generated court, hoop, player, and CPU sprites are used in-game, with fallback canvas drawing while assets load.
 - The court image is generated from the same game coordinates used for 2P/3P scoring, so the visible 3P line matches the scoring boundary.
+- The full court uses an NBA-inspired 94:50 proportion with wider space outside the 3-point line, including corner spacing.
 - Player and CPU sprites use the same base artwork, with the player recolored to yellow and the ball drawn only while possessed.
 - Defenders face the ball or ball handler, while the offensive player faces the hoop.
 - CPU offense uses crossovers, hesitations, bursts, drives, and close-range finishes.

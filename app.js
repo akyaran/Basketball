@@ -44,7 +44,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.2";
+const APP_VERSION = "0.8.3";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -124,13 +124,13 @@ const settings = { ...DEFAULT_SETTINGS };
 const court = {
   x: 0,
   y: 0,
-  w: 1000,
-  h: 620,
-  hoop: { x: 830, y: 310 },
-  rightHoop: { x: 830, y: 310 },
-  leftHoop: { x: 170, y: 310 },
-  threeRadius: 265,
-  threeCornerY: 210,
+  w: 1241,
+  h: 660,
+  hoop: { x: 1172, y: 330 },
+  rightHoop: { x: 1172, y: 330 },
+  leftHoop: { x: 69, y: 330 },
+  threeRadius: 314,
+  threeCornerY: 290,
 };
 
 versionBadge.textContent = `v${APP_VERSION}`;
@@ -566,12 +566,12 @@ function setPossession(possession) {
 
 function getStartSpots(possession) {
   return {
-    player: { x: possession === "player" ? 340 : 485, y: 286 },
-    teammate: { x: possession === "player" ? 300 : 495, y: 408 },
-    playerWing: { x: possession === "player" ? 300 : 500, y: 180 },
-    defender: { x: possession === "player" ? 555 : 660, y: 286 },
-    cpuMate: { x: possession === "player" ? 590 : 700, y: 408 },
-    cpuWing: { x: possession === "player" ? 590 : 700, y: 180 },
+    player: { x: possession === "player" ? 820 : 315, y: 310 },
+    teammate: { x: possession === "player" ? 760 : 260, y: 470 },
+    playerWing: { x: possession === "player" ? 760 : 260, y: 190 },
+    defender: { x: possession === "player" ? 930 : 420, y: 310 },
+    cpuMate: { x: possession === "player" ? 985 : 480, y: 470 },
+    cpuWing: { x: possession === "player" ? 985 : 480, y: 190 },
   };
 }
 
@@ -1503,8 +1503,8 @@ function getCpuSpacingSpot(offBall, handler, index) {
   const lane = index % 2 === 0 ? -1 : 1;
   const wave = Math.sin(state.time / 640 + index * 1.8) * 22;
   const handlerDepth = clamp((handler.x - hoop.x) / 520, 0, 1);
-  const wingX = court.w - 250 - index * 64 - handlerDepth * 92;
-  const cornerX = court.w - 150 - index * 34;
+  const wingX = hoop.x + 250 + index * 68 + handlerDepth * 92;
+  const cornerX = hoop.x + 150 + index * 34;
   const wideY = hoop.y + lane * (206 + index * 28);
   const cutChance = Math.sin(state.time / 900 + index * 2.2) > 0.72 && distance(handler, hoop) < 275;
   if (cutChance) {
@@ -1603,8 +1603,8 @@ function moveCharacter(p, step = 0) {
   p.vy *= 0.92;
   p.x += p.vx * step;
   p.y += p.vy * step;
-  p.x = clamp(p.x, 130, court.w - 130);
-  p.y = clamp(p.y, 92, court.h - 92);
+  p.x = clamp(p.x, 80, court.w - 80);
+  p.y = clamp(p.y, 72, court.h - 72);
 }
 
 function getActiveCharacters() {
@@ -1621,8 +1621,8 @@ function resolveCharacterCollisions() {
     }
   }
   for (const character of characters) {
-    character.x = clamp(character.x, 130, court.w - 130);
-    character.y = clamp(character.y, 92, court.h - 92);
+    character.x = clamp(character.x, 80, court.w - 80);
+    character.y = clamp(character.y, 72, court.h - 72);
   }
 }
 
@@ -1965,31 +1965,49 @@ function drawFallbackCourt() {
   ctx.lineTo(court.w / 2, court.h - 54);
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(710, court.hoop.y, 82, Math.PI * 0.5, Math.PI * 1.5, false);
+  ctx.arc(court.w / 2, court.hoop.y, 79, 0, Math.PI * 2);
   ctx.stroke();
-  drawThreePointLine();
-  ctx.strokeRect(710, court.hoop.y - 98, 236, 196);
+  drawThreePointLine(court.leftHoop, "left");
+  drawThreePointLine(court.rightHoop, "right");
+  drawPaint(court.leftHoop, "left");
+  drawPaint(court.rightHoop, "right");
   ctx.beginPath();
-  ctx.arc(court.hoop.x, court.hoop.y, 58, 0, Math.PI * 2);
+  ctx.arc(court.leftHoop.x, court.leftHoop.y, 52, 0, Math.PI * 2);
+  ctx.arc(court.rightHoop.x, court.rightHoop.y, 52, 0, Math.PI * 2);
   ctx.stroke();
 }
 
-function drawThreePointLine() {
+function drawPaint(hoop, side) {
+  const laneW = 211;
+  const laneL = 251;
+  const x = side === "right" ? court.w - 54 - laneL : 54;
+  ctx.strokeRect(x, hoop.y - laneW / 2, laneL, laneW);
+  const ftX = side === "right" ? x : x + laneL;
+  ctx.beginPath();
+  ctx.arc(ftX, hoop.y, 79, Math.PI * 0.5, Math.PI * 1.5, side === "left");
+  ctx.stroke();
+}
+
+function drawThreePointLine(hoop = court.rightHoop, side = "right") {
   const r = court.threeRadius;
   const cornerY = court.threeCornerY;
   const angle = Math.asin(cornerY / r);
-  const topY = court.hoop.y - cornerY;
-  const bottomY = court.hoop.y + cornerY;
-  const cornerX = court.hoop.x + Math.cos(Math.PI + angle) * r;
+  const topY = hoop.y - cornerY;
+  const bottomY = hoop.y + cornerY;
+  const arcInset = Math.cos(Math.PI + angle) * r;
+  const cornerX = side === "right" ? hoop.x + arcInset : hoop.x - arcInset;
+  const endX = side === "right" ? court.w - 54 : 54;
+  const startAngle = side === "right" ? Math.PI + angle : -angle;
+  const endAngle = side === "right" ? Math.PI - angle : angle;
 
   ctx.save();
   ctx.strokeStyle = "rgba(255,255,255,0.88)";
   ctx.lineWidth = 6;
   ctx.beginPath();
-  ctx.moveTo(court.w - 54, topY);
+  ctx.moveTo(endX, topY);
   ctx.lineTo(cornerX, topY);
-  ctx.arc(court.hoop.x, court.hoop.y, r, Math.PI + angle, Math.PI - angle, true);
-  ctx.lineTo(court.w - 54, bottomY);
+  ctx.arc(hoop.x, hoop.y, r, startAngle, endAngle, side === "right");
+  ctx.lineTo(endX, bottomY);
   ctx.stroke();
   ctx.restore();
 }
