@@ -39,12 +39,13 @@ const versionBadge = document.getElementById("versionBadge");
 const titleVersion = document.getElementById("titleVersion");
 const shotReadout = document.getElementById("shotReadout");
 const spaceReadout = document.getElementById("spaceReadout");
+const staminaReadout = document.getElementById("staminaReadout");
 const playerScoreEl = document.getElementById("playerScore");
 const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.9";
+const APP_VERSION = "0.8.10";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -58,6 +59,10 @@ const DEFAULT_SETTINGS = {
 };
 const BASE_PLAYER_RADIUS = 21;
 const BASE_CPU_RADIUS = 23;
+const NORMAL_MOVE_SPEED = 178;
+const DASH_MOVE_SPEED = 270;
+const STAMINA_DRAIN = 0.55;
+const STAMINA_RECOVER = 0.34;
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const keys = new Set();
 const input = {
@@ -195,6 +200,7 @@ const defender = {
   color: "#4aa3df",
   vx: 0,
   vy: 0,
+  stamina: 1,
 };
 
 const cpuMate = {
@@ -204,6 +210,7 @@ const cpuMate = {
   color: "#4aa3df",
   vx: 0,
   vy: 0,
+  stamina: 1,
 };
 
 const cpuWing = {
@@ -213,6 +220,7 @@ const cpuWing = {
   color: "#4aa3df",
   vx: 0,
   vy: 0,
+  stamina: 1,
 };
 
 function resize() {
@@ -538,6 +546,37 @@ function getMoveSpeedScale() {
   return 0.82 + settings.moveSpeed * 0.48;
 }
 
+function updateStamina(p, dashing, moving, step) {
+  if (typeof p.stamina !== "number") p.stamina = 1;
+  const delta = dashing && moving ? -STAMINA_DRAIN : STAMINA_RECOVER;
+  p.stamina = clamp(p.stamina + delta * step, 0, 1);
+}
+
+function getCharacterMoveSpeed(p, wantsDash, moving, step) {
+  const dashing = Boolean(wantsDash && moving && (p.stamina ?? 1) > 0.12);
+  updateStamina(p, dashing, moving, step);
+  return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale();
+}
+
+function moveCharacterToward(p, target, step, wantsDash = false, stopDistance = 3) {
+  const dx = target.x - p.x;
+  const dy = target.y - p.y;
+  const d = Math.hypot(dx, dy);
+  p.vx = 0;
+  p.vy = 0;
+  const moving = d > stopDistance;
+  const speed = getCharacterMoveSpeed(p, wantsDash, moving, step);
+  if (!moving) {
+    return true;
+  }
+  const move = Math.min(d - stopDistance, speed * step);
+  p.x += (dx / d) * move;
+  p.y += (dy / d) * move;
+  p.x = clamp(p.x, 80, court.w - 80);
+  p.y = clamp(p.y, 72, court.h - 72);
+  return d - move <= stopDistance + 1;
+}
+
 function applyCharacterSettings() {
   const scale = getCharacterScale();
   for (const p of getPlayerTeam()) p.r = BASE_PLAYER_RADIUS * scale;
@@ -658,33 +697,24 @@ function updatePossessionTransition(step) {
 }
 
 function moveTransitionCharacters(targets, step, receiverKey) {
-  const speed = 188 * getMoveSpeedScale();
   const arrived = {
-    player: moveTransitionCharacter(player, targets.player, step, speed),
-    teammate: moveTransitionCharacter(teammate, targets.teammate, step, speed),
-    playerWing: moveTransitionCharacter(playerWing, targets.playerWing, step, speed),
-    defender: moveTransitionCharacter(defender, targets.defender, step, speed),
-    cpuMate: moveTransitionCharacter(cpuMate, targets.cpuMate, step, speed),
-    cpuWing: moveTransitionCharacter(cpuWing, targets.cpuWing, step, speed),
+    player: moveTransitionCharacter(player, targets.player, step),
+    teammate: moveTransitionCharacter(teammate, targets.teammate, step),
+    playerWing: moveTransitionCharacter(playerWing, targets.playerWing, step),
+    defender: moveTransitionCharacter(defender, targets.defender, step),
+    cpuMate: moveTransitionCharacter(cpuMate, targets.cpuMate, step),
+    cpuWing: moveTransitionCharacter(cpuWing, targets.cpuWing, step),
   };
   return Boolean(arrived[receiverKey]);
 }
 
-function moveTransitionCharacter(p, target, step, speed) {
-  const dx = target.x - p.x;
-  const dy = target.y - p.y;
-  const d = Math.hypot(dx, dy);
-  p.vx = 0;
-  p.vy = 0;
-  if (d <= 3) {
+function moveTransitionCharacter(p, target, step) {
+  const arrived = moveCharacterToward(p, target, step, false, 3);
+  if (arrived) {
     p.x = target.x;
     p.y = target.y;
-    return true;
   }
-  const move = Math.min(d, speed * step);
-  p.x += (dx / d) * move;
-  p.y += (dy / d) * move;
-  return d - move <= 3;
+  return arrived;
 }
 
 function snapTransitionReceiver(targets, receiverKey) {
@@ -1140,7 +1170,6 @@ function update(dt) {
   const moving = Math.hypot(moveX, moveY);
   const dash = input.dash || keys.has("ShiftLeft") || keys.has("ShiftRight");
   const controlled = state.possession === "player" ? getPlayerHandler() : player;
-  const speed = (dash && controlled.stamina > 0.12 ? 270 : 178) * getMoveSpeedScale() * (state.ball || state.passBall ? 0.88 : 1);
 
   if (updateGameClock(step)) {
     updateParticles(step);
@@ -1166,10 +1195,10 @@ function update(dt) {
     return;
   }
 
+  const speed = getCharacterMoveSpeed(controlled, dash, moving > 0, step);
   controlled.x += (moving ? moveX / Math.max(1, moving) : 0) * speed * step;
   controlled.y += (moving ? moveY / Math.max(1, moving) : 0) * speed * step;
   moveCharacter(controlled);
-  controlled.stamina = clamp(controlled.stamina + (dash && moving ? -0.55 : 0.34) * step, 0, 1);
   player.cooldown = Math.max(0, player.cooldown - step);
   teammate.cooldown = Math.max(0, teammate.cooldown - step);
   playerWing.cooldown = Math.max(0, playerWing.cooldown - step);
@@ -1305,11 +1334,8 @@ function getCpuPureZoneSpot(agent, mark, handler, hoop, index, checkingBall) {
   };
 }
 
-function moveZoneDefender(agent, spot, step, speed) {
-  const tunedSpeed = Math.min(speed * getMoveSpeedScale(), 8.2);
-  agent.vx += (spot.x - agent.x) * tunedSpeed * step;
-  agent.vy += (spot.y - agent.y) * tunedSpeed * step;
-  moveCharacter(agent, step);
+function moveZoneDefender(agent, spot, step) {
+  moveCharacterToward(agent, spot, step, false, 4);
 }
 
 function getZoneJitter(agent, seed, amount) {
@@ -1405,16 +1431,10 @@ function getHelpDefender(primary, handler, defenseTeam) {
 }
 
 function guardPlayer(agent, target, step, pressure = 1, options = {}) {
-  const guardPressure = state.timingActive ? 1.5 + settings.defense * 1.45 + Math.min(1.75, state.timingHold * 0.58) : 1.05 + settings.defense * 0.62;
   const cushion = options.cushion ?? (state.timingActive ? 66 : 84);
   const guardSpot = getFrontGuardSpot(target, cushion);
-  const spacing = distance(target, agent);
-  const chase = spacing > cushion + 22 ? 1.08 : 0.48;
-  const defenderSpeed = 3.45 + settings.defense * 4.1;
-  const tunedSpeed = defenderSpeed * getMoveSpeedScale();
-  agent.vx += (guardSpot.x - agent.x) * tunedSpeed * step * chase * guardPressure * pressure;
-  agent.vy += (guardSpot.y - agent.y) * tunedSpeed * step * chase * guardPressure * pressure;
-  moveCharacter(agent, step);
+  const urgent = state.timingActive && pressure > 1 && distance(agent, guardSpot) > 96;
+  moveCharacterToward(agent, guardSpot, step, urgent, 4);
 }
 
 function getFrontGuardSpot(target, cushion) {
@@ -1430,10 +1450,7 @@ function getFrontGuardSpot(target, cushion) {
 
 function moveHelpDefender(agent, handler, step, pressure = 1) {
   const spot = getFrontGuardSpot(handler, 104);
-  const speed = (5.15 + settings.defense * 2.5) * getMoveSpeedScale();
-  agent.vx += (spot.x - agent.x) * speed * step * pressure;
-  agent.vy += (spot.y - agent.y) * speed * step * pressure;
-  moveCharacter(agent, step);
+  moveCharacterToward(agent, spot, step, pressure > 1.25 && distance(agent, spot) > 130, 4);
 }
 
 function getDefenseMatchups(defenders, targets) {
@@ -1456,10 +1473,7 @@ function moveOffBallPlayer(agent, handler, step, index = 0) {
     x: clamp(handler.x + 112 + roam * 58 - index * 34, 250, hoop.x - 92),
     y: clamp(hoop.y + lane * (154 + index * 34) + lift * 42, 102, court.h - 102),
   };
-  const speed = 2.65 * getMoveSpeedScale();
-  agent.vx += (target.x - agent.x) * speed * step;
-  agent.vy += (target.y - agent.y) * speed * step;
-  moveCharacter(agent, step);
+  moveCharacterToward(agent, target, step, false, 4);
 }
 
 function updateCpuOffense(step) {
@@ -1517,11 +1531,8 @@ function updateCpuOffense(step) {
     target.y += rimDir.y * 54;
   }
 
-  const tempoPulse = 0.78 + Math.max(0, Math.sin(state.cpuDrivePhase * 1.15)) * 0.34;
-  const cpuSpeed = Math.min((3.85 + settings.defense * 0.72) * state.cpuBurst * tempoPulse * getMoveSpeedScale(), 7.1);
-  handler.vx += (target.x - handler.x) * cpuSpeed * step;
-  handler.vy += (target.y - handler.y) * cpuSpeed * step;
-  moveCharacter(handler, step);
+  const cpuWantsDash = state.cpuMoveStyle === "drive" && rimDistance > 145 && space > 74;
+  moveCharacterToward(handler, target, step, cpuWantsDash, 4);
 
   if (isTwoOnTwo()) {
     moveCpuOffBall(step, handler);
@@ -1548,10 +1559,7 @@ function moveCpuOffBall(step, handler) {
   const offBalls = getCpuOffBalls();
   offBalls.forEach((offBall, index) => {
     const target = getCpuSpacingSpot(offBall, handler, index);
-    const speed = 2.75 * getMoveSpeedScale();
-    offBall.vx += (target.x - offBall.x) * speed * step;
-    offBall.vy += (target.y - offBall.y) * speed * step;
-    moveCharacter(offBall, step);
+    moveCharacterToward(offBall, target, step, false, 4);
   });
 }
 
@@ -1664,10 +1672,7 @@ function getPlayerZoneSpot(agent, handler, hoop, index, checkingBall) {
 function moveOffBallDefender(agent, target, step, pressure = 1, ballHandler = null, onBall = false) {
   if (!isTwoOnTwo()) return;
   const guardSpot = onBall ? getFrontGuardSpot(target, 92) : getZoneGuardSpot(target, ballHandler);
-  const speed = (onBall ? 3.9 : 2.95) * getMoveSpeedScale();
-  agent.vx += (guardSpot.x - agent.x) * speed * step * pressure;
-  agent.vy += (guardSpot.y - agent.y) * speed * step * pressure;
-  moveCharacter(agent, step);
+  moveCharacterToward(agent, guardSpot, step, onBall && pressure > 1 && distance(agent, guardSpot) > 120, 4);
 }
 
 function getZoneGuardSpot(target, ballHandler) {
@@ -1971,6 +1976,10 @@ function updateParticles(dt) {
 function updateHud() {
   if (gameClockEl) gameClockEl.textContent = formatGameClock(state.gameClock);
   if (shotClockEl) shotClockEl.textContent = state.shotClock < 5 ? state.shotClock.toFixed(1) : Math.ceil(state.shotClock).toString();
+  if (staminaReadout) {
+    const staminaTarget = state.possession === "player" ? getPlayerHandler() : player;
+    staminaReadout.textContent = `${Math.round((staminaTarget.stamina ?? 1) * 100)}%`;
+  }
   if (state.gameOver) {
     spaceReadout.textContent = state.playerScore === state.cpuScore ? "Draw" : state.playerScore > state.cpuScore ? "You win" : "CPU wins";
     shotReadout.textContent = "Game over";

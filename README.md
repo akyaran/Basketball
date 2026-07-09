@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.8.9`
+Version: `0.8.10`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -22,6 +22,7 @@ http://localhost:4173/
 
 - Left pad: move
 - Dash button: quick burst
+- STAMINA: shows the active player stamina, and dash drains it before recovering at normal speed.
 - SHOT in TIMING mode: hold, release when the needle hits the green zone
 - SHOT in AIM mode: hold, pull to aim and set power, release
 - SLOW ON/OFF: toggles shot slow motion for A/B testing
@@ -33,6 +34,7 @@ http://localhost:4173/
 - Play resumes as soon as the new ball handler reaches the ball; defenders and off-ball players no longer have to finish their recovery routes first.
 - The closest next-offense player now retrieves the ball after a score, and player-side AI defenders rotate into zone help while the user controls the on-ball defender.
 - CPU offense and defense acceleration is capped and tuned down so movement reads less unnaturally fast.
+- CPU and player movement now uses the same normal/dash speed rules; CPU dash is stamina-limited instead of receiving hidden speed boosts.
 - Generated court, hoop, player, and CPU sprites are used in-game, with fallback canvas drawing while assets load.
 - The court image is generated from the same game coordinates used for 2P/3P scoring, so the visible 3P line matches the scoring boundary.
 - The full court uses an NBA-inspired 94:50 proportion with more vertical room outside the 3-point line, including playable corner spacing.
