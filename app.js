@@ -44,7 +44,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.7";
+const APP_VERSION = "0.8.8";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -369,6 +369,18 @@ function getCpuHandler() {
   return findByKey(getCpuTeam(), state.cpuHandler, defender);
 }
 
+function getCharacterByKey(key) {
+  const characters = {
+    player,
+    teammate,
+    playerWing,
+    defender,
+    cpuMate,
+    cpuWing,
+  };
+  return characters[key] || player;
+}
+
 function getPlayerOffBall() {
   return getPlayerOffBalls()[0] || player;
 }
@@ -584,7 +596,7 @@ function setCharacterPosition(p, spot) {
 }
 
 function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
-  const receiverKey = nextPossession === "player" ? "player" : "defender";
+  const receiverKey = options.receiverKey || getNearestReceiverKey(nextPossession, { x: ballX, y: ballY });
   const spots = getStartSpots(nextPossession);
   if (options.receiverSpot) spots[receiverKey] = options.receiverSpot;
   const receiver = spots[receiverKey];
@@ -608,6 +620,12 @@ function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   meter.classList.remove("show");
 }
 
+function getNearestReceiverKey(possession, point) {
+  const team = possession === "player" ? getPlayerTeam() : getCpuTeam();
+  const receiver = nearestOf(point, team);
+  return possession === "player" ? getPlayerKey(receiver) : getCpuKey(receiver);
+}
+
 function getReboundPickupSpot(hoop) {
   const insideDir = hoop === court.rightHoop ? -1 : 1;
   return {
@@ -624,7 +642,7 @@ function updatePossessionTransition(step) {
   const receiverArrived = moveTransitionCharacters(transition.targets, step, transition.receiverKey);
 
   if (state.recoveryBall) {
-    const receiver = transition.nextPossession === "player" ? player : defender;
+    const receiver = getCharacterByKey(transition.receiverKey);
     state.recoveryBall.x = receiver.x + 18;
     state.recoveryBall.y = receiver.y - 18;
   }
@@ -632,7 +650,7 @@ function updatePossessionTransition(step) {
 
   if (receiverArrived || transition.elapsed >= transition.maxDuration) {
     snapTransitionReceiver(transition.targets, transition.receiverKey);
-    finishPossessionTransitionAtSpots(transition.nextPossession);
+    finishPossessionTransitionAtSpots(transition.nextPossession, transition.receiverKey);
     showMessage(transition.nextPossession === "player" ? "Your ball" : "CPU ball");
   }
 
@@ -681,13 +699,13 @@ function snapTransitionReceiver(targets, receiverKey) {
   setCharacterPosition(receivers[receiverKey], targets[receiverKey]);
 }
 
-function finishPossessionTransitionAtSpots(possession) {
+function finishPossessionTransitionAtSpots(possession, receiverKey = null) {
   state.possession = possession;
   state.possessionTransition = null;
   state.recoveryBall = null;
   state.passBall = null;
-  state.playerHandler = "player";
-  state.cpuHandler = "defender";
+  state.playerHandler = possession === "player" ? (receiverKey || "player") : "player";
+  state.cpuHandler = possession === "cpu" ? (receiverKey || "defender") : "defender";
   state.cpuShotTimer = possession === "cpu" ? 1.35 : 0;
   state.cpuDrivePhase = Math.random() * Math.PI * 2;
   state.cpuMoveTimer = 0;
@@ -1603,11 +1621,44 @@ function getCpuPassUrgency(handler, target, handlerSpace) {
 }
 
 function updatePlayerHelpDefense(step, handler) {
-  updateTeamDefense(getPlayerTeam(), getCpuTeam(), handler, step, {
-    controlledDefender: player,
-    onBallPressure: 1.04,
-    helpPressure: 1.46,
+  updatePlayerZoneDefense(handler, step);
+}
+
+function updatePlayerZoneDefense(handler, step) {
+  if (!isTwoOnTwo()) return;
+  const hoop = getAttackHoop("cpu");
+  const aiDefenders = getPlayerTeam().filter((member) => member !== player);
+  if (!aiDefenders.length) return;
+
+  const closest = nearestOf(handler, aiDefenders);
+  aiDefenders.forEach((agent, index) => {
+    const checkingBall = agent === closest && distance(player, handler) > 118;
+    const spot = getPlayerZoneSpot(agent, handler, hoop, index, checkingBall);
+    moveZoneDefender(agent, spot, step, (checkingBall ? 5.8 : 3.45) + settings.defense * (checkingBall ? 2.4 : 1.8));
   });
+}
+
+function getPlayerZoneSpot(agent, handler, hoop, index, checkingBall) {
+  const lane = index % 2 === 0 ? -1 : 1;
+  const homeY = hoop.y + lane * (isThreeOnThree() ? 178 : 118);
+  const jitter = getZoneJitter(agent, index + 5, checkingBall ? 8 : 14);
+  if (checkingBall) {
+    const checkSpot = getFrontGuardSpot(handler, 74);
+    return {
+      x: clamp(checkSpot.x + jitter.x * 0.35, hoop.x + 42, hoop.x + 380),
+      y: clamp(checkSpot.y + jitter.y * 0.35, 72, court.h - 72),
+    };
+  }
+  const rimDistance = distance(handler, hoop);
+  const rimHelp = clamp((330 - rimDistance) / 210, 0, 1);
+  const base = {
+    x: hoop.x + (rimHelp > 0.35 ? 82 : 132 + index * 42),
+    y: hoop.y * 0.58 + homeY * 0.42,
+  };
+  return {
+    x: clamp(base.x + handler.x * 0.12 + jitter.x, hoop.x + 46, hoop.x + 360),
+    y: clamp(base.y + handler.y * 0.18 + jitter.y, 72, court.h - 72),
+  };
 }
 
 function moveOffBallDefender(agent, target, step, pressure = 1, ballHandler = null, onBall = false) {
