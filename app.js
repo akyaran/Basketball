@@ -44,7 +44,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.5";
+const APP_VERSION = "0.8.6";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -584,30 +584,16 @@ function setCharacterPosition(p, spot) {
 }
 
 function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
-  const duration = 1.35;
-  const keepPlayersInPlace = options.keepPlayersInPlace || false;
   const receiverKey = nextPossession === "player" ? "player" : "defender";
-  const spots = keepPlayersInPlace ? getCurrentSpots() : getStartSpots(nextPossession);
+  const spots = getStartSpots(nextPossession);
   if (options.receiverSpot) spots[receiverKey] = options.receiverSpot;
   const receiver = spots[receiverKey];
 
   state.possessionTransition = {
     nextPossession,
-    keepPlayersInPlace,
     elapsed: 0,
-    duration,
-    playerStart: { x: player.x, y: player.y },
-    playerEnd: spots.player,
-    teammateStart: { x: teammate.x, y: teammate.y },
-    teammateEnd: spots.teammate,
-    playerWingStart: { x: playerWing.x, y: playerWing.y },
-    playerWingEnd: spots.playerWing,
-    defenderStart: { x: defender.x, y: defender.y },
-    defenderEnd: spots.defender,
-    cpuMateStart: { x: cpuMate.x, y: cpuMate.y },
-    cpuMateEnd: spots.cpuMate,
-    cpuWingStart: { x: cpuWing.x, y: cpuWing.y },
-    cpuWingEnd: spots.cpuWing,
+    maxDuration: options.maxDuration || 5.2,
+    targets: spots,
     ballStart: { x: ballX, y: ballY },
     ballEnd: { x: receiver.x + 18, y: receiver.y - 18 },
   };
@@ -619,17 +605,6 @@ function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   state.timingHold = 0;
   input.shootingId = null;
   meter.classList.remove("show");
-}
-
-function getCurrentSpots() {
-  return {
-    player: { x: player.x, y: player.y },
-    teammate: { x: teammate.x, y: teammate.y },
-    playerWing: { x: playerWing.x, y: playerWing.y },
-    defender: { x: defender.x, y: defender.y },
-    cpuMate: { x: cpuMate.x, y: cpuMate.y },
-    cpuWing: { x: cpuWing.x, y: cpuWing.y },
-  };
 }
 
 function getReboundPickupSpot(hoop) {
@@ -645,54 +620,64 @@ function updatePossessionTransition(step) {
   if (!transition) return false;
 
   transition.elapsed += step;
-  const t = clamp(transition.elapsed / transition.duration, 0, 1);
-  const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-
-  player.x = transition.playerStart.x + (transition.playerEnd.x - transition.playerStart.x) * ease;
-  player.y = transition.playerStart.y + (transition.playerEnd.y - transition.playerStart.y) * ease;
-  teammate.x = transition.teammateStart.x + (transition.teammateEnd.x - transition.teammateStart.x) * ease;
-  teammate.y = transition.teammateStart.y + (transition.teammateEnd.y - transition.teammateStart.y) * ease;
-  playerWing.x = transition.playerWingStart.x + (transition.playerWingEnd.x - transition.playerWingStart.x) * ease;
-  playerWing.y = transition.playerWingStart.y + (transition.playerWingEnd.y - transition.playerWingStart.y) * ease;
-  defender.x = transition.defenderStart.x + (transition.defenderEnd.x - transition.defenderStart.x) * ease;
-  defender.y = transition.defenderStart.y + (transition.defenderEnd.y - transition.defenderStart.y) * ease;
-  cpuMate.x = transition.cpuMateStart.x + (transition.cpuMateEnd.x - transition.cpuMateStart.x) * ease;
-  cpuMate.y = transition.cpuMateStart.y + (transition.cpuMateEnd.y - transition.cpuMateStart.y) * ease;
-  cpuWing.x = transition.cpuWingStart.x + (transition.cpuWingEnd.x - transition.cpuWingStart.x) * ease;
-  cpuWing.y = transition.cpuWingStart.y + (transition.cpuWingEnd.y - transition.cpuWingStart.y) * ease;
-  player.vx = 0;
-  player.vy = 0;
-  teammate.vx = 0;
-  teammate.vy = 0;
-  playerWing.vx = 0;
-  playerWing.vy = 0;
-  defender.vx = 0;
-  defender.vy = 0;
-  cpuMate.vx = 0;
-  cpuMate.vy = 0;
-  cpuWing.vx = 0;
-  cpuWing.vy = 0;
+  const allArrived = moveTransitionCharacters(transition.targets, step);
 
   if (state.recoveryBall) {
-    const catchEase = 1 - Math.pow(1 - t, 3);
-    state.recoveryBall.x = transition.ballStart.x + (transition.ballEnd.x - transition.ballStart.x) * catchEase;
-    state.recoveryBall.y = transition.ballStart.y + (transition.ballEnd.y - transition.ballStart.y) * catchEase;
+    const receiver = transition.nextPossession === "player" ? player : defender;
+    state.recoveryBall.x = receiver.x + 18;
+    state.recoveryBall.y = receiver.y - 18;
   }
   resolveCharacterCollisions();
 
-  if (t >= 1) {
-    if (transition.keepPlayersInPlace) {
-      finishPossessionTransitionInPlace(transition.nextPossession);
-    } else {
-      setPossession(transition.nextPossession);
-    }
+  if (allArrived || transition.elapsed >= transition.maxDuration) {
+    snapTransitionTargets(transition.targets);
+    finishPossessionTransitionAtSpots(transition.nextPossession);
     showMessage(transition.nextPossession === "player" ? "Your ball" : "CPU ball");
   }
 
   return true;
 }
 
-function finishPossessionTransitionInPlace(possession) {
+function moveTransitionCharacters(targets, step) {
+  const speed = 188 * getMoveSpeedScale();
+  const arrived = [
+    moveTransitionCharacter(player, targets.player, step, speed),
+    moveTransitionCharacter(teammate, targets.teammate, step, speed),
+    moveTransitionCharacter(playerWing, targets.playerWing, step, speed),
+    moveTransitionCharacter(defender, targets.defender, step, speed),
+    moveTransitionCharacter(cpuMate, targets.cpuMate, step, speed),
+    moveTransitionCharacter(cpuWing, targets.cpuWing, step, speed),
+  ];
+  return arrived.every(Boolean);
+}
+
+function moveTransitionCharacter(p, target, step, speed) {
+  const dx = target.x - p.x;
+  const dy = target.y - p.y;
+  const d = Math.hypot(dx, dy);
+  p.vx = 0;
+  p.vy = 0;
+  if (d <= 3) {
+    p.x = target.x;
+    p.y = target.y;
+    return true;
+  }
+  const move = Math.min(d, speed * step);
+  p.x += (dx / d) * move;
+  p.y += (dy / d) * move;
+  return d - move <= 3;
+}
+
+function snapTransitionTargets(targets) {
+  setCharacterPosition(player, targets.player);
+  setCharacterPosition(teammate, targets.teammate);
+  setCharacterPosition(playerWing, targets.playerWing);
+  setCharacterPosition(defender, targets.defender);
+  setCharacterPosition(cpuMate, targets.cpuMate);
+  setCharacterPosition(cpuWing, targets.cpuWing);
+}
+
+function finishPossessionTransitionAtSpots(possession) {
   state.possession = possession;
   state.possessionTransition = null;
   state.recoveryBall = null;
@@ -1887,7 +1872,6 @@ function updateBall(dt) {
       showMessage(getScoreMessage(b));
       const pickup = getReboundPickupSpot(hoop);
       beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y, {
-        keepPlayersInPlace: true,
         receiverSpot: pickup,
       });
     } else {
@@ -1896,7 +1880,6 @@ function updateBall(dt) {
       showMessage(b.owner === "player" ? (b.quality > 0.58 ? "Rim out" : "Off balance") : "Stop");
       const pickup = getReboundPickupSpot(hoop);
       beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y, {
-        keepPlayersInPlace: true,
         receiverSpot: pickup,
       });
     }
