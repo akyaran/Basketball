@@ -44,7 +44,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.3";
+const APP_VERSION = "0.8.4";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -124,13 +124,14 @@ const settings = { ...DEFAULT_SETTINGS };
 const court = {
   x: 0,
   y: 0,
-  w: 1241,
-  h: 660,
-  hoop: { x: 1172, y: 330 },
-  rightHoop: { x: 1172, y: 330 },
-  leftHoop: { x: 69, y: 330 },
-  threeRadius: 314,
-  threeCornerY: 290,
+  w: 1542,
+  h: 820,
+  hoop: { x: 1456, y: 410 },
+  rightHoop: { x: 1456, y: 410 },
+  leftHoop: { x: 86, y: 410 },
+  lineInset: 24,
+  threeRadius: 389,
+  threeCornerY: 361,
 };
 
 versionBadge.textContent = `v${APP_VERSION}`;
@@ -566,12 +567,12 @@ function setPossession(possession) {
 
 function getStartSpots(possession) {
   return {
-    player: { x: possession === "player" ? 820 : 315, y: 310 },
-    teammate: { x: possession === "player" ? 760 : 260, y: 470 },
-    playerWing: { x: possession === "player" ? 760 : 260, y: 190 },
-    defender: { x: possession === "player" ? 930 : 420, y: 310 },
-    cpuMate: { x: possession === "player" ? 985 : 480, y: 470 },
-    cpuWing: { x: possession === "player" ? 985 : 480, y: 190 },
+    player: { x: possession === "player" ? 990 : 390, y: 390 },
+    teammate: { x: possession === "player" ? 920 : 330, y: 585 },
+    playerWing: { x: possession === "player" ? 920 : 330, y: 235 },
+    defender: { x: possession === "player" ? 1125 : 520, y: 390 },
+    cpuMate: { x: possession === "player" ? 1180 : 595, y: 585 },
+    cpuWing: { x: possession === "player" ? 1180 : 595, y: 235 },
   };
 }
 
@@ -614,6 +615,14 @@ function beginPossessionTransition(nextPossession, ballX, ballY) {
   state.timingHold = 0;
   input.shootingId = null;
   meter.classList.remove("show");
+}
+
+function getReboundPickupSpot(hoop) {
+  const insideDir = hoop === court.rightHoop ? -1 : 1;
+  return {
+    x: hoop.x + insideDir * 48,
+    y: hoop.y,
+  };
 }
 
 function updatePossessionTransition(step) {
@@ -1835,12 +1844,14 @@ function updateBall(dt) {
       state.shake = 8;
       addBurst(hoop.x, hoop.y, "#99d6c2", 26);
       showMessage(getScoreMessage(b));
-      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", hoop.x, hoop.y);
+      const pickup = getReboundPickupSpot(hoop);
+      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y);
     } else {
       state.shake = 4;
       addBurst(b.targetX, b.targetY, "#d9572f", 12);
       showMessage(b.owner === "player" ? (b.quality > 0.58 ? "Rim out" : "Off balance") : "Stop");
-      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", b.targetX, b.targetY);
+      const pickup = getReboundPickupSpot(hoop);
+      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y);
     }
   }
 }
@@ -1959,10 +1970,11 @@ function drawFallbackCourt() {
 
   ctx.strokeStyle = "rgba(255,255,255,0.72)";
   ctx.lineWidth = 5;
-  ctx.strokeRect(54, 54, court.w - 108, court.h - 108);
+  const lineInset = court.lineInset;
+  ctx.strokeRect(lineInset, lineInset, court.w - lineInset * 2, court.h - lineInset * 2);
   ctx.beginPath();
-  ctx.moveTo(court.w / 2, 54);
-  ctx.lineTo(court.w / 2, court.h - 54);
+  ctx.moveTo(court.w / 2, lineInset);
+  ctx.lineTo(court.w / 2, court.h - lineInset);
   ctx.stroke();
   ctx.beginPath();
   ctx.arc(court.w / 2, court.hoop.y, 79, 0, Math.PI * 2);
@@ -1980,7 +1992,7 @@ function drawFallbackCourt() {
 function drawPaint(hoop, side) {
   const laneW = 211;
   const laneL = 251;
-  const x = side === "right" ? court.w - 54 - laneL : 54;
+  const x = side === "right" ? court.w - court.lineInset - laneL : court.lineInset;
   ctx.strokeRect(x, hoop.y - laneW / 2, laneL, laneW);
   const ftX = side === "right" ? x : x + laneL;
   ctx.beginPath();
@@ -1996,7 +2008,7 @@ function drawThreePointLine(hoop = court.rightHoop, side = "right") {
   const bottomY = hoop.y + cornerY;
   const arcInset = Math.cos(Math.PI + angle) * r;
   const cornerX = side === "right" ? hoop.x + arcInset : hoop.x - arcInset;
-  const endX = side === "right" ? court.w - 54 : 54;
+  const endX = side === "right" ? court.w - court.lineInset : court.lineInset;
   const startAngle = side === "right" ? Math.PI + angle : -angle;
   const endAngle = side === "right" ? Math.PI - angle : angle;
 
@@ -2013,10 +2025,14 @@ function drawThreePointLine(hoop = court.rightHoop, side = "right") {
 }
 
 function drawHoop(hoop = court.rightHoop, side = "right") {
-  if (imageReady(assets.hoop) && side === "right") {
+  if (imageReady(assets.hoop)) {
     const hoopW = 150;
     const hoopH = 206;
-    ctx.drawImage(assets.hoop, hoop.x - 58, hoop.y - 103, hoopW, hoopH);
+    ctx.save();
+    ctx.translate(hoop.x, hoop.y);
+    if (side === "left") ctx.scale(-1, 1);
+    ctx.drawImage(assets.hoop, -58, -103, hoopW, hoopH);
+    ctx.restore();
     return;
   }
 
