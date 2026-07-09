@@ -38,7 +38,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.7.9";
+const APP_VERSION = "0.8.0";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -65,6 +65,10 @@ const state = {
   w: 0,
   h: 0,
   scale: 1,
+  cameraX: 0,
+  cameraY: 0,
+  viewW: 1000,
+  viewH: 620,
   started: false,
   mode: "timing",
   time: 0,
@@ -208,25 +212,46 @@ function resize() {
   canvas.style.height = `${state.h}px`;
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
-  const margin = state.w < 760 ? 14 : 30;
+  const margin = state.w < 760 ? 10 : 18;
   const usableH = state.h - margin * 2;
   const usableW = state.w - margin * 2;
-  const ratio = court.w / court.h;
-  let drawW = usableW;
-  let drawH = drawW / ratio;
-  if (drawH > usableH) {
-    drawH = usableH;
-    drawW = drawH * ratio;
-  }
-  state.scale = drawW / court.w;
-  court.x = (state.w - drawW) / 2;
-  court.y = (state.h - drawH) / 2;
+  const targetViewW = state.w < 760 ? 700 : 660;
+  const aspect = usableW / Math.max(1, usableH);
+  state.viewW = Math.min(court.w, targetViewW);
+  state.viewH = Math.min(court.h, state.viewW / Math.max(0.8, aspect));
+  state.scale = Math.min(usableW / state.viewW, usableH / state.viewH);
+  state.viewW = usableW / state.scale;
+  state.viewH = usableH / state.scale;
+  court.x = margin;
+  court.y = margin;
+  updateCamera(true);
 }
 
 function worldToScreen(p) {
   return {
-    x: court.x + p.x * state.scale,
-    y: court.y + p.y * state.scale,
+    x: court.x + (p.x - state.cameraX) * state.scale,
+    y: court.y + (p.y - state.cameraY) * state.scale,
+  };
+}
+
+function updateCamera(force = false) {
+  const focus = getCameraFocus();
+  const targetX = clamp(focus.x - state.viewW * 0.5, 0, Math.max(0, court.w - state.viewW));
+  const targetY = clamp(focus.y - state.viewH * 0.5, 0, Math.max(0, court.h - state.viewH));
+  const follow = force ? 1 : 0.14;
+  state.cameraX += (targetX - state.cameraX) * follow;
+  state.cameraY += (targetY - state.cameraY) * follow;
+}
+
+function getCameraFocus() {
+  if (state.ball) return { x: state.ball.x, y: state.ball.y };
+  if (state.passBall) return { x: state.passBall.x, y: state.passBall.y };
+  if (state.recoveryBall) return { x: state.recoveryBall.x, y: state.recoveryBall.y };
+  const handler = state.possession === "player" ? getPlayerHandler() : getCpuHandler();
+  const hoop = getAttackHoop(state.possession);
+  return {
+    x: handler.x * 0.68 + hoop.x * 0.32,
+    y: handler.y * 0.74 + hoop.y * 0.26,
   };
 }
 
@@ -1797,12 +1822,14 @@ function formatGameClock(seconds) {
 }
 
 function drawCourt() {
+  updateCamera();
   const s = state.scale;
   ctx.save();
   const shakeX = (Math.random() - 0.5) * state.shake;
   const shakeY = (Math.random() - 0.5) * state.shake;
   ctx.translate(court.x + shakeX, court.y + shakeY);
   ctx.scale(s, s);
+  ctx.translate(-state.cameraX, -state.cameraY);
 
   if (imageReady(assets.court)) {
     ctx.drawImage(assets.court, 0, 0, court.w, court.h);
