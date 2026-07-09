@@ -1,6 +1,6 @@
 # Basketball 1v1 Prototype
 
-Version: `0.8.6`
+Version: `0.8.7`
 
 iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
 
@@ -30,6 +30,7 @@ http://localhost:4173/
 - Reset Defaults: restore the tuning sliders to their default values
 - After a player make or miss, possession switches to CPU offense and the player defends.
 - After a shot turnover, the new ball handler runs to the scoring-side basket area at normal movement speed while everyone else rotates back at the same speed.
+- Play resumes as soon as the new ball handler reaches the ball; defenders and off-ball players no longer have to finish their recovery routes first.
 - Generated court, hoop, player, and CPU sprites are used in-game, with fallback canvas drawing while assets load.
 - The court image is generated from the same game coordinates used for 2P/3P scoring, so the visible 3P line matches the scoring boundary.
 - The full court uses an NBA-inspired 94:50 proportion with more vertical room outside the 3-point line, including playable corner spacing.

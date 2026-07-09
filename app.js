@@ -44,7 +44,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.6";
+const APP_VERSION = "0.8.7";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -591,6 +591,7 @@ function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
 
   state.possessionTransition = {
     nextPossession,
+    receiverKey,
     elapsed: 0,
     maxDuration: options.maxDuration || 5.2,
     targets: spots,
@@ -620,7 +621,7 @@ function updatePossessionTransition(step) {
   if (!transition) return false;
 
   transition.elapsed += step;
-  const allArrived = moveTransitionCharacters(transition.targets, step);
+  const receiverArrived = moveTransitionCharacters(transition.targets, step, transition.receiverKey);
 
   if (state.recoveryBall) {
     const receiver = transition.nextPossession === "player" ? player : defender;
@@ -629,8 +630,8 @@ function updatePossessionTransition(step) {
   }
   resolveCharacterCollisions();
 
-  if (allArrived || transition.elapsed >= transition.maxDuration) {
-    snapTransitionTargets(transition.targets);
+  if (receiverArrived || transition.elapsed >= transition.maxDuration) {
+    snapTransitionReceiver(transition.targets, transition.receiverKey);
     finishPossessionTransitionAtSpots(transition.nextPossession);
     showMessage(transition.nextPossession === "player" ? "Your ball" : "CPU ball");
   }
@@ -638,17 +639,17 @@ function updatePossessionTransition(step) {
   return true;
 }
 
-function moveTransitionCharacters(targets, step) {
+function moveTransitionCharacters(targets, step, receiverKey) {
   const speed = 188 * getMoveSpeedScale();
-  const arrived = [
-    moveTransitionCharacter(player, targets.player, step, speed),
-    moveTransitionCharacter(teammate, targets.teammate, step, speed),
-    moveTransitionCharacter(playerWing, targets.playerWing, step, speed),
-    moveTransitionCharacter(defender, targets.defender, step, speed),
-    moveTransitionCharacter(cpuMate, targets.cpuMate, step, speed),
-    moveTransitionCharacter(cpuWing, targets.cpuWing, step, speed),
-  ];
-  return arrived.every(Boolean);
+  const arrived = {
+    player: moveTransitionCharacter(player, targets.player, step, speed),
+    teammate: moveTransitionCharacter(teammate, targets.teammate, step, speed),
+    playerWing: moveTransitionCharacter(playerWing, targets.playerWing, step, speed),
+    defender: moveTransitionCharacter(defender, targets.defender, step, speed),
+    cpuMate: moveTransitionCharacter(cpuMate, targets.cpuMate, step, speed),
+    cpuWing: moveTransitionCharacter(cpuWing, targets.cpuWing, step, speed),
+  };
+  return Boolean(arrived[receiverKey]);
 }
 
 function moveTransitionCharacter(p, target, step, speed) {
@@ -668,13 +669,16 @@ function moveTransitionCharacter(p, target, step, speed) {
   return d - move <= 3;
 }
 
-function snapTransitionTargets(targets) {
-  setCharacterPosition(player, targets.player);
-  setCharacterPosition(teammate, targets.teammate);
-  setCharacterPosition(playerWing, targets.playerWing);
-  setCharacterPosition(defender, targets.defender);
-  setCharacterPosition(cpuMate, targets.cpuMate);
-  setCharacterPosition(cpuWing, targets.cpuWing);
+function snapTransitionReceiver(targets, receiverKey) {
+  const receivers = {
+    player,
+    teammate,
+    playerWing,
+    defender,
+    cpuMate,
+    cpuWing,
+  };
+  setCharacterPosition(receivers[receiverKey], targets[receiverKey]);
 }
 
 function finishPossessionTransitionAtSpots(possession) {
