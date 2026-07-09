@@ -44,7 +44,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.4";
+const APP_VERSION = "0.8.5";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -583,13 +583,17 @@ function setCharacterPosition(p, spot) {
   p.vy = 0;
 }
 
-function beginPossessionTransition(nextPossession, ballX, ballY) {
+function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   const duration = 1.35;
-  const spots = getStartSpots(nextPossession);
-  const receiver = nextPossession === "player" ? spots.player : spots.defender;
+  const keepPlayersInPlace = options.keepPlayersInPlace || false;
+  const receiverKey = nextPossession === "player" ? "player" : "defender";
+  const spots = keepPlayersInPlace ? getCurrentSpots() : getStartSpots(nextPossession);
+  if (options.receiverSpot) spots[receiverKey] = options.receiverSpot;
+  const receiver = spots[receiverKey];
 
   state.possessionTransition = {
     nextPossession,
+    keepPlayersInPlace,
     elapsed: 0,
     duration,
     playerStart: { x: player.x, y: player.y },
@@ -615,6 +619,17 @@ function beginPossessionTransition(nextPossession, ballX, ballY) {
   state.timingHold = 0;
   input.shootingId = null;
   meter.classList.remove("show");
+}
+
+function getCurrentSpots() {
+  return {
+    player: { x: player.x, y: player.y },
+    teammate: { x: teammate.x, y: teammate.y },
+    playerWing: { x: playerWing.x, y: playerWing.y },
+    defender: { x: defender.x, y: defender.y },
+    cpuMate: { x: cpuMate.x, y: cpuMate.y },
+    cpuWing: { x: cpuWing.x, y: cpuWing.y },
+  };
 }
 
 function getReboundPickupSpot(hoop) {
@@ -666,11 +681,37 @@ function updatePossessionTransition(step) {
   resolveCharacterCollisions();
 
   if (t >= 1) {
-    setPossession(transition.nextPossession);
+    if (transition.keepPlayersInPlace) {
+      finishPossessionTransitionInPlace(transition.nextPossession);
+    } else {
+      setPossession(transition.nextPossession);
+    }
     showMessage(transition.nextPossession === "player" ? "Your ball" : "CPU ball");
   }
 
   return true;
+}
+
+function finishPossessionTransitionInPlace(possession) {
+  state.possession = possession;
+  state.possessionTransition = null;
+  state.recoveryBall = null;
+  state.passBall = null;
+  state.playerHandler = "player";
+  state.cpuHandler = "defender";
+  state.cpuShotTimer = possession === "cpu" ? 1.35 : 0;
+  state.cpuDrivePhase = Math.random() * Math.PI * 2;
+  state.cpuMoveTimer = 0;
+  state.cpuMoveStyle = "probe";
+  state.cpuBurst = 1;
+  state.cpuPassCooldown = 0.75;
+  state.shotClock = 24;
+  state.ball = null;
+  state.shotCharge = 0;
+  state.timingActive = false;
+  state.timingHold = 0;
+  state.dunkFx = null;
+  meter.classList.remove("show");
 }
 
 function addBurst(x, y, color, count = 16) {
@@ -1845,13 +1886,19 @@ function updateBall(dt) {
       addBurst(hoop.x, hoop.y, "#99d6c2", 26);
       showMessage(getScoreMessage(b));
       const pickup = getReboundPickupSpot(hoop);
-      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y);
+      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y, {
+        keepPlayersInPlace: true,
+        receiverSpot: pickup,
+      });
     } else {
       state.shake = 4;
       addBurst(b.targetX, b.targetY, "#d9572f", 12);
       showMessage(b.owner === "player" ? (b.quality > 0.58 ? "Rim out" : "Off balance") : "Stop");
       const pickup = getReboundPickupSpot(hoop);
-      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y);
+      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y, {
+        keepPlayersInPlace: true,
+        receiverSpot: pickup,
+      });
     }
   }
 }
