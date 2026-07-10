@@ -1,8 +1,8 @@
 # Basketball 1v1 Prototype
 
-Version: `0.8.10`
+Version: `0.9.0`
 
-iPad landscape first basketball prototype for testing shot feel before expanding to 5v5.
+iPad landscape first basketball prototype for testing shot feel and small-team to 5v5 spacing.
 
 ## Play
 
@@ -26,7 +26,7 @@ http://localhost:4173/
 - SHOT in TIMING mode: hold, release when the needle hits the green zone
 - SHOT in AIM mode: hold, pull to aim and set power, release
 - SLOW ON/OFF: toggles shot slow motion for A/B testing
-- Settings: tune defense effect, distance effect, meter speed, character size, movement speed, camera zoom, and game time before starting
+- Settings: choose 1on1, 2on2, 3on3, or 5on5, then tune defense effect, distance effect, meter speed, character size, movement speed, camera zoom, and game time before starting
 - HOME: return to the title screen during play
 - Reset Defaults: restore the tuning sliders to their default values
 - After a player make or miss, possession switches to CPU offense and the player defends.
@@ -35,6 +35,7 @@ http://localhost:4173/
 - The closest next-offense player now retrieves the ball after a score, and player-side AI defenders rotate into zone help while the user controls the on-ball defender.
 - CPU offense and defense acceleration is capped and tuned down so movement reads less unnaturally fast.
 - CPU and player movement now uses the same normal/dash speed rules; CPU dash is stamina-limited instead of receiving hidden speed boosts.
+- 5on5 mode adds full-team spacing, zone shells, and directional passing toward the teammate closest to the movement-stick direction.
 - Generated court, hoop, player, and CPU sprites are used in-game, with fallback canvas drawing while assets load.
 - The court image is generated from the same game coordinates used for 2P/3P scoring, so the visible 3P line matches the scoring boundary.
 - The full court uses an NBA-inspired 94:50 proportion with more vertical room outside the 3-point line, including playable corner spacing.

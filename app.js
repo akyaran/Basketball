@@ -18,6 +18,7 @@ const resetSettingsButton = document.getElementById("resetSettingsButton");
 const mode1v1Button = document.getElementById("mode1v1Button");
 const mode2v2Button = document.getElementById("mode2v2Button");
 const mode3v3Button = document.getElementById("mode3v3Button");
+const mode5v5Button = document.getElementById("mode5v5Button");
 const defenseSlider = document.getElementById("defenseSlider");
 const distanceSlider = document.getElementById("distanceSlider");
 const meterSpeedSlider = document.getElementById("meterSpeedSlider");
@@ -45,7 +46,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.8.10";
+const APP_VERSION = "0.9.0";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -193,6 +194,28 @@ const playerWing = {
   cooldown: 0,
 };
 
+const playerBig = {
+  x: 250,
+  y: 520,
+  r: 21,
+  color: "#f5bf45",
+  vx: 0,
+  vy: 0,
+  stamina: 1,
+  cooldown: 0,
+};
+
+const playerCorner = {
+  x: 250,
+  y: 300,
+  r: 21,
+  color: "#f5bf45",
+  vx: 0,
+  vy: 0,
+  stamina: 1,
+  cooldown: 0,
+};
+
 const defender = {
   x: 525,
   y: 310,
@@ -222,6 +245,29 @@ const cpuWing = {
   vy: 0,
   stamina: 1,
 };
+
+const cpuBig = {
+  x: 630,
+  y: 520,
+  r: 23,
+  color: "#4aa3df",
+  vx: 0,
+  vy: 0,
+  stamina: 1,
+};
+
+const cpuCorner = {
+  x: 640,
+  y: 300,
+  r: 23,
+  color: "#4aa3df",
+  vx: 0,
+  vy: 0,
+  stamina: 1,
+};
+
+const playerRoster = [player, teammate, playerWing, playerBig, playerCorner];
+const cpuRoster = [defender, cpuMate, cpuWing, cpuBig, cpuCorner];
 
 function resize() {
   state.w = window.innerWidth;
@@ -342,26 +388,30 @@ function isThreeOnThree() {
 }
 
 function getPlayerCount() {
-  return settings.players === "3v3" ? 3 : settings.players === "2v2" ? 2 : 1;
+  return settings.players === "5v5" ? 5 : settings.players === "3v3" ? 3 : settings.players === "2v2" ? 2 : 1;
 }
 
 function getPlayerTeam() {
-  return getPlayerCount() >= 3 ? [player, teammate, playerWing] : getPlayerCount() >= 2 ? [player, teammate] : [player];
+  return playerRoster.slice(0, getPlayerCount());
 }
 
 function getCpuTeam() {
-  return getPlayerCount() >= 3 ? [defender, cpuMate, cpuWing] : getPlayerCount() >= 2 ? [defender, cpuMate] : [defender];
+  return cpuRoster.slice(0, getPlayerCount());
 }
 
 function getPlayerKey(p) {
   if (p === teammate) return "teammate";
   if (p === playerWing) return "playerWing";
+  if (p === playerBig) return "playerBig";
+  if (p === playerCorner) return "playerCorner";
   return "player";
 }
 
 function getCpuKey(p) {
   if (p === cpuMate) return "cpuMate";
   if (p === cpuWing) return "cpuWing";
+  if (p === cpuBig) return "cpuBig";
+  if (p === cpuCorner) return "cpuCorner";
   return "defender";
 }
 
@@ -382,9 +432,13 @@ function getCharacterByKey(key) {
     player,
     teammate,
     playerWing,
+    playerBig,
+    playerCorner,
     defender,
     cpuMate,
     cpuWing,
+    cpuBig,
+    cpuCorner,
   };
   return characters[key] || player;
 }
@@ -420,7 +474,7 @@ function getNearestPlayerDefender(p) {
 }
 
 function isPlayerTeam(p) {
-  return p === player || p === teammate || p === playerWing;
+  return playerRoster.includes(p);
 }
 
 function getAttackHoop(owner) {
@@ -509,7 +563,7 @@ function loadSettings() {
     settings.moveSpeed = readSetting(saved.moveSpeed, DEFAULT_SETTINGS.moveSpeed);
     settings.cameraZoom = readSetting(saved.cameraZoom, DEFAULT_SETTINGS.cameraZoom);
     settings.gameSeconds = readGameSeconds(saved.gameSeconds, DEFAULT_SETTINGS.gameSeconds);
-    settings.players = saved.players === "3v3" ? "3v3" : saved.players === "2v2" ? "2v2" : "1v1";
+    settings.players = saved.players === "5v5" ? "5v5" : saved.players === "3v3" ? "3v3" : saved.players === "2v2" ? "2v2" : "1v1";
   } catch (error) {
     Object.assign(settings, DEFAULT_SETTINGS);
   }
@@ -536,6 +590,7 @@ function applySettingsToControls() {
   mode1v1Button.classList.toggle("active", settings.players === "1v1");
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
   mode3v3Button.classList.toggle("active", settings.players === "3v3");
+  mode5v5Button.classList.toggle("active", settings.players === "5v5");
 }
 
 function getCharacterScale() {
@@ -579,8 +634,8 @@ function moveCharacterToward(p, target, step, wantsDash = false, stopDistance = 
 
 function applyCharacterSettings() {
   const scale = getCharacterScale();
-  for (const p of getPlayerTeam()) p.r = BASE_PLAYER_RADIUS * scale;
-  for (const p of getCpuTeam()) p.r = BASE_CPU_RADIUS * scale;
+  for (const p of playerRoster) p.r = BASE_PLAYER_RADIUS * scale;
+  for (const p of cpuRoster) p.r = BASE_CPU_RADIUS * scale;
 }
 
 function resetPossession(scoredByPlayer) {
@@ -602,12 +657,8 @@ function setPossession(possession) {
   state.cpuPassCooldown = 0.75;
   state.shotClock = 24;
   const spots = getStartSpots(possession);
-  setCharacterPosition(player, spots.player);
-  setCharacterPosition(teammate, spots.teammate);
-  setCharacterPosition(playerWing, spots.playerWing);
-  setCharacterPosition(defender, spots.defender);
-  setCharacterPosition(cpuMate, spots.cpuMate);
-  setCharacterPosition(cpuWing, spots.cpuWing);
+  for (const member of playerRoster) setCharacterPosition(member, spots[getPlayerKey(member)]);
+  for (const member of cpuRoster) setCharacterPosition(member, spots[getCpuKey(member)]);
   state.ball = null;
   state.shotCharge = 0;
   state.timingActive = false;
@@ -619,11 +670,15 @@ function setPossession(possession) {
 function getStartSpots(possession) {
   return {
     player: { x: possession === "player" ? 990 : 390, y: 390 },
-    teammate: { x: possession === "player" ? 920 : 330, y: 585 },
-    playerWing: { x: possession === "player" ? 920 : 330, y: 235 },
+    teammate: { x: possession === "player" ? 902 : 330, y: 585 },
+    playerWing: { x: possession === "player" ? 902 : 330, y: 235 },
+    playerBig: { x: possession === "player" ? 1080 : 430, y: 506 },
+    playerCorner: { x: possession === "player" ? 830 : 265, y: 126 },
     defender: { x: possession === "player" ? 1125 : 520, y: 390 },
-    cpuMate: { x: possession === "player" ? 1180 : 595, y: 585 },
-    cpuWing: { x: possession === "player" ? 1180 : 595, y: 235 },
+    cpuMate: { x: possession === "player" ? 1180 : 610, y: 585 },
+    cpuWing: { x: possession === "player" ? 1180 : 610, y: 235 },
+    cpuBig: { x: possession === "player" ? 1042 : 458, y: 506 },
+    cpuCorner: { x: possession === "player" ? 1290 : 682, y: 126 },
   };
 }
 
@@ -701,9 +756,13 @@ function moveTransitionCharacters(targets, step, receiverKey) {
     player: moveTransitionCharacter(player, targets.player, step),
     teammate: moveTransitionCharacter(teammate, targets.teammate, step),
     playerWing: moveTransitionCharacter(playerWing, targets.playerWing, step),
+    playerBig: moveTransitionCharacter(playerBig, targets.playerBig, step),
+    playerCorner: moveTransitionCharacter(playerCorner, targets.playerCorner, step),
     defender: moveTransitionCharacter(defender, targets.defender, step),
     cpuMate: moveTransitionCharacter(cpuMate, targets.cpuMate, step),
     cpuWing: moveTransitionCharacter(cpuWing, targets.cpuWing, step),
+    cpuBig: moveTransitionCharacter(cpuBig, targets.cpuBig, step),
+    cpuCorner: moveTransitionCharacter(cpuCorner, targets.cpuCorner, step),
   };
   return Boolean(arrived[receiverKey]);
 }
@@ -722,9 +781,13 @@ function snapTransitionReceiver(targets, receiverKey) {
     player,
     teammate,
     playerWing,
+    playerBig,
+    playerCorner,
     defender,
     cpuMate,
     cpuWing,
+    cpuBig,
+    cpuCorner,
   };
   setCharacterPosition(receivers[receiverKey], targets[receiverKey]);
 }
@@ -985,11 +1048,47 @@ function launchFinish(owner, kind, quality) {
 function passPlayerBall() {
   if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition) return;
   const from = getPlayerHandler();
-  const team = getPlayerTeam();
-  const next = team[(team.indexOf(from) + 1) % team.length];
-  const nextHandler = getPlayerKey(next);
-  const to = next;
+  const to = getDirectionalPassTarget(from, getPlayerTeam());
+  if (!to || to === from) return;
+  const nextHandler = getPlayerKey(to);
   startPass("player", from, to, nextHandler);
+}
+
+function getDirectionalPassTarget(from, team) {
+  const candidates = team.filter((member) => member !== from);
+  if (!candidates.length) return null;
+  const inputDir = getInputMoveVector();
+  const fallbackHoop = getAttackHoop("player");
+  const fallback = {
+    x: fallbackHoop.x - from.x,
+    y: fallbackHoop.y - from.y,
+  };
+  const dir = normalizeVector(Math.hypot(inputDir.x, inputDir.y) > 0.18 ? inputDir : fallback);
+  return candidates
+    .map((candidate) => {
+      const vx = candidate.x - from.x;
+      const vy = candidate.y - from.y;
+      const forward = vx * dir.x + vy * dir.y;
+      const lateral = Math.abs(vx * -dir.y + vy * dir.x);
+      const d = Math.hypot(vx, vy);
+      const behindPenalty = forward < 0 ? 720 + Math.abs(forward) * 0.6 : 0;
+      return { candidate, score: lateral + d * 0.16 + behindPenalty };
+    })
+    .sort((a, b) => a.score - b.score)[0].candidate;
+}
+
+function getInputMoveVector() {
+  const keyX = (keys.has("ArrowRight") || keys.has("KeyD") ? 1 : 0) - (keys.has("ArrowLeft") || keys.has("KeyA") ? 1 : 0);
+  const keyY = (keys.has("ArrowDown") || keys.has("KeyS") ? 1 : 0) - (keys.has("ArrowUp") || keys.has("KeyW") ? 1 : 0);
+  return {
+    x: input.moveX || keyX,
+    y: input.moveY || keyY,
+  };
+}
+
+function normalizeVector(v) {
+  const len = Math.max(1, Math.hypot(v.x, v.y));
+  return { x: v.x / len, y: v.y / len };
 }
 
 function passCpuBall() {
@@ -1199,9 +1298,7 @@ function update(dt) {
   controlled.x += (moving ? moveX / Math.max(1, moving) : 0) * speed * step;
   controlled.y += (moving ? moveY / Math.max(1, moving) : 0) * speed * step;
   moveCharacter(controlled);
-  player.cooldown = Math.max(0, player.cooldown - step);
-  teammate.cooldown = Math.max(0, teammate.cooldown - step);
-  playerWing.cooldown = Math.max(0, playerWing.cooldown - step);
+  for (const member of playerRoster) member.cooldown = Math.max(0, member.cooldown - step);
   state.cpuPassCooldown = Math.max(0, state.cpuPassCooldown - step);
 
   if (state.possession === "player") {
@@ -1312,10 +1409,10 @@ function moveCpuRimProtector(agent, handler, hoop, step) {
 }
 
 function getCpuPureZoneSpot(agent, mark, handler, hoop, index, checkingBall) {
-  const lane = index % 2 === 0 ? -1 : 1;
-  const upperY = hoop.y - 172;
-  const lowerY = hoop.y + 172;
-  const homeY = index % 2 === 0 ? upperY : lowerY;
+  const laneOffsets = [-224, -96, 96, 224];
+  const homeY = hoop.y + laneOffsets[index % laneOffsets.length];
+  const lane = Math.sign(homeY - hoop.y) || (index % 2 === 0 ? -1 : 1);
+  const shellDepth = index < 2 ? 286 : 182;
   const jitter = getZoneJitter(agent, index + 1, checkingBall ? 10 : 15);
   if (checkingBall) {
     const checkSpot = getFrontGuardSpot(handler, state.timingActive ? 42 : 54);
@@ -1325,8 +1422,8 @@ function getCpuPureZoneSpot(agent, mark, handler, hoop, index, checkingBall) {
     };
   }
   const wing = {
-    x: clamp(mark.x * 0.2 + handler.x * 0.18 + hoop.x * 0.62 - 10, hoop.x - 300, hoop.x - 78),
-    y: clamp(mark.y * 0.28 + homeY * 0.58 + handler.y * 0.14, homeY - 78, homeY + 78),
+    x: clamp(mark.x * 0.16 + handler.x * 0.16 + (hoop.x - shellDepth) * 0.68, hoop.x - 340, hoop.x - 70),
+    y: clamp(mark.y * 0.24 + homeY * 0.62 + handler.y * 0.14, homeY - 70, homeY + 70),
   };
   return {
     x: clamp(wing.x + jitter.x, 130, court.w - 130),
@@ -1470,8 +1567,8 @@ function moveOffBallPlayer(agent, handler, step, index = 0) {
   const roam = Math.sin(state.time / (680 + index * 90) + index * 1.9);
   const lift = Math.cos(state.time / (760 + index * 80) + agent.x * 0.01);
   const target = {
-    x: clamp(handler.x + 112 + roam * 58 - index * 34, 250, hoop.x - 92),
-    y: clamp(hoop.y + lane * (154 + index * 34) + lift * 42, 102, court.h - 102),
+    x: clamp(handler.x + 98 + roam * 62 - index * 22, 230, hoop.x - 92),
+    y: clamp(hoop.y + lane * (132 + index * 42) + lift * 38, 92, court.h - 92),
   };
   moveCharacterToward(agent, target, step, false, 4);
 }
@@ -1568,9 +1665,9 @@ function getCpuSpacingSpot(offBall, handler, index) {
   const lane = index % 2 === 0 ? -1 : 1;
   const wave = Math.sin(state.time / 640 + index * 1.8) * 22;
   const handlerDepth = clamp((handler.x - hoop.x) / 520, 0, 1);
-  const wingX = hoop.x + 250 + index * 68 + handlerDepth * 92;
-  const cornerX = hoop.x + 150 + index * 34;
-  const wideY = hoop.y + lane * (206 + index * 28);
+  const wingX = hoop.x + 214 + index * 58 + handlerDepth * 92;
+  const cornerX = hoop.x + 132 + index * 28;
+  const wideY = hoop.y + lane * (156 + index * 36);
   const cutChance = Math.sin(state.time / 900 + index * 2.2) > 0.72 && distance(handler, hoop) < 275;
   if (cutChance) {
     return {
@@ -1648,7 +1745,8 @@ function updatePlayerZoneDefense(handler, step) {
 
 function getPlayerZoneSpot(agent, handler, hoop, index, checkingBall) {
   const lane = index % 2 === 0 ? -1 : 1;
-  const homeY = hoop.y + lane * (isThreeOnThree() ? 178 : 118);
+  const laneOffsets = [-224, -96, 96, 224];
+  const homeY = hoop.y + (isThreeOnThree() ? laneOffsets[index % laneOffsets.length] : lane * 118);
   const jitter = getZoneJitter(agent, index + 5, checkingBall ? 8 : 14);
   if (checkingBall) {
     const checkSpot = getFrontGuardSpot(handler, 74);
@@ -1834,6 +1932,7 @@ function syncSettings() {
   mode1v1Button.classList.toggle("active", settings.players === "1v1");
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
   mode3v3Button.classList.toggle("active", settings.players === "3v3");
+  mode5v5Button.classList.toggle("active", settings.players === "5v5");
   passButton.hidden = getPlayerCount() < 2;
   applyCharacterSettings();
   if (state.w > 0 && state.h > 0) updateCamera(true);
@@ -1845,7 +1944,7 @@ function setPlayerMode(mode) {
   settings.players = mode;
   syncSettings();
   resetPossession(state.possession === "player");
-  showMessage(mode === "3v3" ? "3on3" : mode === "2v2" ? "2on2" : "1on1");
+  showMessage(mode === "5v5" ? "5on5" : mode === "3v3" ? "3on3" : mode === "2v2" ? "2on2" : "1on1");
 }
 
 function startGame() {
@@ -2454,6 +2553,7 @@ resetSettingsButton.addEventListener("click", resetSettings);
 mode1v1Button.addEventListener("click", () => setPlayerMode("1v1"));
 mode2v2Button.addEventListener("click", () => setPlayerMode("2v2"));
 mode3v3Button.addEventListener("click", () => setPlayerMode("3v3"));
+mode5v5Button.addEventListener("click", () => setPlayerMode("5v5"));
 settingsPanel.addEventListener("click", (event) => {
   if (event.target === settingsPanel) closeSettings();
 });
