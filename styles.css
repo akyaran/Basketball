@@ -259,6 +259,20 @@ button {
   letter-spacing: 0;
 }
 
+.screen-button {
+  width: 78px;
+  height: 78px;
+  color: #99d6c2;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.screen-button.active {
+  border-color: rgba(153, 214, 194, 0.72);
+  background: rgba(67, 119, 108, 0.76);
+  box-shadow: 0 0 22px rgba(153, 214, 194, 0.32);
+}
+
 .shoot-button {
   width: 138px;
   height: 138px;
@@ -587,6 +601,12 @@ button {
     width: 68px;
     height: 68px;
     font-size: 12px;
+  }
+
+  .screen-button {
+    width: 66px;
+    height: 66px;
+    font-size: 10px;
   }
 
   .meter {

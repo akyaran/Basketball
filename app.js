@@ -4,6 +4,7 @@ const stick = document.getElementById("stick");
 const joystick = document.getElementById("joystick");
 const shootButton = document.getElementById("shootButton");
 const dashButton = document.getElementById("dashButton");
+const screenButton = document.getElementById("screenButton");
 const passButton = document.getElementById("passButton");
 const aimModeButton = document.getElementById("aimMode");
 const timingModeButton = document.getElementById("timingMode");
@@ -46,7 +47,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.9.2";
+const APP_VERSION = "0.9.3";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -105,6 +106,8 @@ const state = {
   cpuMoveStyle: "probe",
   cpuBurst: 1,
   cpuPassCooldown: 0,
+  screenPlay: null,
+  screenCooldown: 0,
   playerHandler: "player",
   cpuHandler: "defender",
   passBall: null,
@@ -614,7 +617,8 @@ function updateStamina(p, dashing, moving, step) {
 function getCharacterMoveSpeed(p, wantsDash, moving, step) {
   const dashing = Boolean(wantsDash && moving && (p.stamina ?? 1) > 0.12);
   updateStamina(p, dashing, moving, step);
-  return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale();
+  const screenedScale = (p.screenedUntil || 0) > state.time ? 0.52 : 1;
+  return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale() * screenedScale;
 }
 
 function moveCharacterToward(p, target, step, wantsDash = false, stopDistance = 3) {
@@ -659,6 +663,9 @@ function setPossession(possession) {
   state.cpuMoveStyle = "probe";
   state.cpuBurst = 1;
   state.cpuPassCooldown = 0.75;
+  state.screenPlay = null;
+  state.screenCooldown = 0;
+  screenButton.classList.remove("active");
   state.shotClock = 24;
   const spots = getStartSpots(possession);
   for (const member of playerRoster) setCharacterPosition(member, spots[getPlayerKey(member)]);
@@ -724,6 +731,7 @@ function setCharacterPosition(p, spot) {
 }
 
 function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
+  clearPlayerScreen();
   const receiverKey = options.receiverKey || getNearestReceiverKey(nextPossession, { x: ballX, y: ballY });
   const spots = getStartSpots(nextPossession);
   if (options.receiverSpot) spots[receiverKey] = options.receiverSpot;
@@ -1088,6 +1096,84 @@ function passPlayerBall() {
   startPass("player", from, to, nextHandler);
 }
 
+function callPlayerScreen() {
+  if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.timingActive || state.screenCooldown > 0) return;
+  const handler = getPlayerHandler();
+  const defender = getNearestCpuDefender(handler);
+  const inputDir = getInputMoveVector();
+  const hoop = getAttackHoop("player");
+  const side = Math.abs(inputDir.y) > 0.2 ? Math.sign(inputDir.y) : handler.y < hoop.y ? 1 : -1;
+  const target = getScreenSetTarget(handler, defender, side);
+  const screener = getPlayerOffBalls()
+    .map((member) => ({ member, score: distance(member, target) + distance(member, handler) * 0.16 }))
+    .sort((a, b) => a.score - b.score)[0]?.member;
+  if (!screener) return;
+  state.screenPlay = {
+    screenerKey: getPlayerKey(screener),
+    defenderKey: getCpuKey(defender),
+    side,
+    phase: "setting",
+    timer: 2.6,
+    targetX: target.x,
+    targetY: target.y,
+    hit: false,
+  };
+  state.screenCooldown = 1.1;
+  screenButton.classList.add("active");
+  showMessage("Screen coming");
+}
+
+function getScreenSetTarget(handler, defender, side) {
+  const hoop = getAttackHoop("player");
+  const rimDir = normalizeVector({ x: hoop.x - handler.x, y: hoop.y - handler.y });
+  const gap = defender.r + BASE_PLAYER_RADIUS * getCharacterScale() + 5;
+  return {
+    x: clamp(defender.x - rimDir.x * 10, 96, court.w - 96),
+    y: clamp(defender.y + side * gap, 82, court.h - 82),
+  };
+}
+
+function movePlayerScreener(agent, handler, step) {
+  const play = state.screenPlay;
+  if (!play || getPlayerKey(agent) !== play.screenerKey) return false;
+  play.timer -= step;
+  if (play.phase === "setting") {
+    const defender = getCharacterByKey(play.defenderKey);
+    const target = getScreenSetTarget(handler, defender, play.side);
+    play.targetX = target.x;
+    play.targetY = target.y;
+    const arrived = moveCharacterToward(agent, target, step, false, 4);
+    if (arrived) {
+      play.phase = "holding";
+      play.timer = 1.55;
+      screenButton.classList.add("active");
+      showMessage("Use the screen");
+    } else if (play.timer <= 0) {
+      clearPlayerScreen();
+    }
+    return true;
+  }
+  if (play.phase === "holding") {
+    moveCharacterToward(agent, { x: play.targetX, y: play.targetY }, step, false, 2);
+    if (play.timer <= 0) {
+      play.phase = "rolling";
+      play.timer = 1.35;
+      showMessage("Roll");
+    }
+    return true;
+  }
+  const hoop = getAttackHoop("player");
+  const rollTarget = { x: hoop.x - 98, y: clamp(hoop.y + play.side * 72, 112, court.h - 112) };
+  moveCharacterToward(agent, rollTarget, step, true, 16);
+  if (play.timer <= 0 || distance(agent, rollTarget) < 20) clearPlayerScreen();
+  return true;
+}
+
+function clearPlayerScreen() {
+  state.screenPlay = null;
+  screenButton.classList.remove("active");
+}
+
 function getDirectionalPassTarget(from, team) {
   const candidates = team.filter((member) => member !== from);
   if (!candidates.length) return null;
@@ -1167,7 +1253,10 @@ function updatePassBall(step) {
   p.x = p.startX + (p.targetX - p.startX) * ease;
   p.y = p.startY + (p.targetY - p.startY) * ease;
   if (t >= 1) {
-    if (p.owner === "player") state.playerHandler = p.nextHandler;
+    if (p.owner === "player") {
+      state.playerHandler = p.nextHandler;
+      if (state.screenPlay?.screenerKey === p.nextHandler) clearPlayerScreen();
+    }
     if (p.owner === "cpu") {
       state.cpuHandler = p.nextHandler;
       state.cpuMoveTimer = 0.26;
@@ -1335,6 +1424,7 @@ function update(dt) {
   constrainPlayerToAssignedZone();
   for (const member of playerRoster) member.cooldown = Math.max(0, member.cooldown - step);
   state.cpuPassCooldown = Math.max(0, state.cpuPassCooldown - step);
+  state.screenCooldown = Math.max(0, state.screenCooldown - step);
 
   if (state.possession === "player") {
     updateCpuDefense(step);
@@ -1656,6 +1746,7 @@ function constrainPlayerToAssignedZone() {
 
 function moveOffBallPlayer(agent, handler, step, index = 0) {
   if (!isTwoOnTwo() || agent === handler) return;
+  if (movePlayerScreener(agent, handler, step)) return;
   if (isFiveOnFive()) {
     const target = getFiveOnFiveSpacingSpot(agent, getPlayerTeam(), "player", handler);
     moveCharacterToward(agent, target, step, false, 4);
@@ -1975,6 +2066,15 @@ function separateCharacters(a, b) {
   if (block.defense && isCpuBallChecker(block.defense) && block.offense && block.offense !== getPlayerHandler()) {
     aPush = block.offense === a ? 0.92 : 0.08;
   }
+  const aIsScreener = isActivePlayerScreener(a) && getCpuTeam().includes(b);
+  const bIsScreener = isActivePlayerScreener(b) && getCpuTeam().includes(a);
+  if (aIsScreener) {
+    aPush = 0.08;
+    registerScreenContact(b);
+  } else if (bIsScreener) {
+    aPush = 0.92;
+    registerScreenContact(a);
+  }
   const bPush = 1 - aPush;
 
   a.x -= nx * overlap * aPush;
@@ -1991,6 +2091,20 @@ function separateCharacters(a, b) {
     block.offense.vy *= 1 - block.strength * 0.42;
     block.defense.vx *= 1 - block.strength * 0.14;
     block.defense.vy *= 1 - block.strength * 0.14;
+  }
+}
+
+function isActivePlayerScreener(p) {
+  const play = state.screenPlay;
+  if (!play || !isPlayerTeam(p) || play.phase !== "holding" || getPlayerKey(p) !== play.screenerKey) return false;
+  return distance(p, { x: play.targetX, y: play.targetY }) < 18;
+}
+
+function registerScreenContact(defender) {
+  defender.screenedUntil = Math.max(defender.screenedUntil || 0, state.time + 560);
+  if (state.screenPlay && !state.screenPlay.hit) {
+    state.screenPlay.hit = true;
+    showMessage("Screen hit");
   }
 }
 
@@ -2074,6 +2188,7 @@ function syncSettings() {
   mode3v3Button.classList.toggle("active", settings.players === "3v3");
   mode5v5Button.classList.toggle("active", settings.players === "5v5");
   passButton.hidden = getPlayerCount() < 2;
+  screenButton.hidden = getPlayerCount() < 2;
   applyCharacterSettings();
   if (state.w > 0 && state.h > 0) updateCamera(true);
   if (state.timingActive) updateTimingZone();
@@ -2674,6 +2789,14 @@ dashButton.addEventListener("pointercancel", (event) => {
 dashButton.addEventListener("contextmenu", (event) => event.preventDefault());
 dashButton.addEventListener("selectstart", (event) => event.preventDefault());
 
+screenButton.addEventListener("pointerdown", (event) => {
+  event.preventDefault();
+  screenButton.setPointerCapture(event.pointerId);
+  callPlayerScreen();
+});
+screenButton.addEventListener("contextmenu", (event) => event.preventDefault());
+screenButton.addEventListener("selectstart", (event) => event.preventDefault());
+
 passButton.addEventListener("pointerdown", (event) => {
   event.preventDefault();
   passButton.setPointerCapture(event.pointerId);
@@ -2711,6 +2834,7 @@ window.addEventListener("keydown", (event) => {
     startShot({ pointerId: "keyboard", clientX: state.w - 90, clientY: state.h - 90 });
   }
   if ((event.code === "KeyP" || event.code === "Enter") && !event.repeat) passPlayerBall();
+  if (event.code === "KeyE" && !event.repeat) callPlayerScreen();
 });
 window.addEventListener("keyup", (event) => {
   keys.delete(event.code);
