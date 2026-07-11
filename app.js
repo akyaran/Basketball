@@ -47,7 +47,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.9.4";
+const APP_VERSION = "0.9.5";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -109,6 +109,8 @@ const state = {
   screenPlay: null,
   screenCooldown: 0,
   playerHandler: "player",
+  playerDefenderKey: "player",
+  manualDefense: false,
   cpuHandler: "defender",
   passBall: null,
   dunkFx: null,
@@ -430,6 +432,10 @@ function getPlayerHandler() {
   return findByKey(getPlayerTeam(), state.playerHandler, player);
 }
 
+function getPlayerControlledDefender() {
+  return findByKey(getPlayerTeam(), state.playerDefenderKey, player);
+}
+
 function getCpuHandler() {
   return findByKey(getCpuTeam(), state.cpuHandler, defender);
 }
@@ -696,6 +702,7 @@ function setPossession(possession) {
   state.recoveryBall = null;
   state.passBall = null;
   state.playerHandler = "player";
+  state.manualDefense = false;
   state.cpuHandler = "defender";
   state.cpuShotTimer = possession === "cpu" ? 1.35 : 0;
   state.cpuDrivePhase = Math.random() * Math.PI * 2;
@@ -876,6 +883,7 @@ function snapTransitionReceiver(targets, receiverKey) {
 
 function finishPossessionTransitionAtSpots(possession, receiverKey = null) {
   state.possession = possession;
+  state.manualDefense = false;
   state.possessionTransition = null;
   state.recoveryBall = null;
   state.passBall = null;
@@ -1128,12 +1136,27 @@ function launchFinish(owner, kind, quality) {
 }
 
 function passPlayerBall() {
+  if (state.possession === "cpu") {
+    cyclePlayerDefender();
+    return;
+  }
   if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition) return;
   const from = getPlayerHandler();
   const to = getDirectionalPassTarget(from, getPlayerTeam());
   if (!to || to === from) return;
   const nextHandler = getPlayerKey(to);
   startPass("player", from, to, nextHandler);
+}
+
+function cyclePlayerDefender() {
+  if (state.possession !== "cpu" || state.possessionTransition) return;
+  const team = getPlayerTeam();
+  if (team.length < 2) return;
+  const current = getPlayerControlledDefender();
+  const next = team[(team.indexOf(current) + 1) % team.length];
+  state.playerDefenderKey = getPlayerKey(next);
+  state.manualDefense = false;
+  showMessage(`Defense ${team.indexOf(next) + 1}`);
 }
 
 function callPlayerScreen() {
@@ -1431,7 +1454,8 @@ function update(dt) {
   const moveY = input.moveY || keyY;
   const moving = Math.hypot(moveX, moveY);
   const dash = input.dash || keys.has("ShiftLeft") || keys.has("ShiftRight");
-  const controlled = state.possession === "player" ? getPlayerHandler() : player;
+  const controlled = state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
+  state.manualDefense = state.possession === "cpu" && moving > 0.12;
 
   if (updateGameClock(step)) {
     updateParticles(step);
@@ -1464,7 +1488,6 @@ function update(dt) {
     (moving ? moveY / Math.max(1, moving) : 0) * speed * step
   );
   moveCharacter(controlled);
-  constrainPlayerToAssignedZone();
   for (const member of playerRoster) member.cooldown = Math.max(0, member.cooldown - step);
   state.cpuPassCooldown = Math.max(0, state.cpuPassCooldown - step);
   state.screenCooldown = Math.max(0, state.screenCooldown - step);
@@ -1779,14 +1802,6 @@ function getTwoThreeShellSpot(home, handler, hoop, index) {
   };
 }
 
-function constrainPlayerToAssignedZone() {
-  if (state.possession !== "cpu" || !isFiveOnFive() || state.possessionTransition) return;
-  const hoop = getAttackHoop("cpu");
-  const outerEdge = court.w * 0.5 - 54;
-  player.x = clamp(player.x, hoop.x + 70, outerEdge);
-  player.y = clamp(player.y, 72, hoop.y + 34);
-}
-
 function moveOffBallPlayer(agent, handler, step, index = 0) {
   if (!isTwoOnTwo() || agent === handler) return;
   if (movePlayerScreener(agent, handler, step)) return;
@@ -1864,9 +1879,10 @@ function updateCpuOffense(step) {
   const cpuWantsDash = state.cpuMoveStyle === "drive" && rimDistance > 145 && space > 74;
   moveCharacterToward(handler, target, step, cpuWantsDash, 4);
 
+  if (isTwoOnTwo()) moveCpuOffBall(step, handler);
+  updatePlayerHelpDefense(step, handler);
+
   if (isTwoOnTwo()) {
-    moveCpuOffBall(step, handler);
-    updatePlayerHelpDefense(step, handler);
     const passTarget = getBestCpuPassTarget(handler, space);
     const passUrgency = passTarget ? getCpuPassUrgency(handler, passTarget, space) : 0;
     const shouldPass = state.cpuMoveStyle !== "drive" && rimDistance > 185 && passTarget && (state.cpuMoveStyle === "swing" ? passUrgency > 1.15 : Math.random() < step * passUrgency * 0.72);
@@ -1993,22 +2009,30 @@ function getCpuPassUrgency(handler, target, handlerSpace) {
 }
 
 function updatePlayerHelpDefense(step, handler) {
+  const manualDefender = state.manualDefense ? getPlayerControlledDefender() : null;
   if (isFiveOnFive()) {
-    updateFiveOnFiveTwoThreeDefense(getPlayerTeam(), handler, step, player);
+    updateFiveOnFiveTwoThreeDefense(getPlayerTeam(), handler, step, manualDefender);
     return;
   }
-  updatePlayerZoneDefense(handler, step);
+  if (!isTwoOnTwo()) {
+    if (player !== manualDefender) guardPlayer(player, handler, step, 1.1, { cushion: 78 });
+    return;
+  }
+  updatePlayerZoneDefense(handler, step, manualDefender);
 }
 
-function updatePlayerZoneDefense(handler, step) {
+function updatePlayerZoneDefense(handler, step, manualDefender = null) {
   if (!isTwoOnTwo()) return;
   const hoop = getAttackHoop("cpu");
-  const aiDefenders = getPlayerTeam().filter((member) => member !== player);
+  const team = getPlayerTeam();
+  const aiDefenders = team.filter((member) => member !== manualDefender);
   if (!aiDefenders.length) return;
 
   const closest = nearestOf(handler, aiDefenders);
-  aiDefenders.forEach((agent, index) => {
-    const checkingBall = agent === closest && distance(player, handler) > 118;
+  const manualCheckingBall = manualDefender && distance(manualDefender, handler) < 108;
+  aiDefenders.forEach((agent) => {
+    const index = team.indexOf(agent);
+    const checkingBall = agent === closest && !manualCheckingBall;
     const spot = getPlayerZoneSpot(agent, handler, hoop, index, checkingBall);
     moveZoneDefender(agent, spot, step, (checkingBall ? 5.8 : 3.45) + settings.defense * (checkingBall ? 2.4 : 1.8));
   });
@@ -2374,9 +2398,10 @@ function updateHud() {
   if (gameClockEl) gameClockEl.textContent = formatGameClock(state.gameClock);
   if (shotClockEl) shotClockEl.textContent = state.shotClock < 5 ? state.shotClock.toFixed(1) : Math.ceil(state.shotClock).toString();
   if (staminaReadout) {
-    const staminaTarget = state.possession === "player" ? getPlayerHandler() : player;
+    const staminaTarget = state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
     staminaReadout.textContent = `${Math.round((staminaTarget.stamina ?? 1) * 100)}%`;
   }
+  passButton.textContent = state.possession === "cpu" ? "SWITCH" : "PASS";
   if (state.gameOver) {
     spaceReadout.textContent = state.playerScore === state.cpuScore ? "Draw" : state.playerScore > state.cpuScore ? "You win" : "CPU wins";
     shotReadout.textContent = "Game over";
@@ -2391,7 +2416,7 @@ function updateHud() {
     return;
   }
   if (state.possession === "cpu") {
-    shotReadout.textContent = state.ball ? "Box out" : "Defend";
+    shotReadout.textContent = state.ball ? "Box out" : state.manualDefense ? "Manual" : "Auto defense";
     return;
   }
   if (state.timingActive) {
@@ -2545,9 +2570,9 @@ function drawHoop(hoop = court.rightHoop, side = "right") {
 }
 
 function drawControlMarker() {
-  const controlled = state.possession === "player" ? getPlayerHandler() : player;
+  const controlled = state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
   ctx.save();
-  ctx.strokeStyle = "#fff7e0";
+  ctx.strokeStyle = state.possession === "cpu" && !state.manualDefense ? "#99d6c2" : "#fff7e0";
   ctx.lineWidth = 4;
   ctx.beginPath();
   ctx.ellipse(controlled.x, controlled.y + controlled.r + 12, controlled.r * 1.42, controlled.r * 0.52, 0, 0, Math.PI * 2);
