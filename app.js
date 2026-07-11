@@ -47,7 +47,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.9.3";
+const APP_VERSION = "0.9.4";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -617,7 +617,7 @@ function updateStamina(p, dashing, moving, step) {
 function getCharacterMoveSpeed(p, wantsDash, moving, step) {
   const dashing = Boolean(wantsDash && moving && (p.stamina ?? 1) > 0.12);
   updateStamina(p, dashing, moving, step);
-  const screenedScale = (p.screenedUntil || 0) > state.time ? 0.52 : 1;
+  const screenedScale = (p.screenedUntil || 0) > state.time ? 0.38 : 1;
   return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale() * screenedScale;
 }
 
@@ -633,11 +633,51 @@ function moveCharacterToward(p, target, step, wantsDash = false, stopDistance = 
     return true;
   }
   const move = Math.min(d - stopDistance, speed * step);
-  p.x += (dx / d) * move;
-  p.y += (dy / d) * move;
-  p.x = clamp(p.x, 80, court.w - 80);
-  p.y = clamp(p.y, 72, court.h - 72);
-  return d - move <= stopDistance + 1;
+  moveCharacterWithCollisions(p, (dx / d) * move, (dy / d) * move);
+  return distance(p, target) <= stopDistance + 1;
+}
+
+function moveCharacterWithCollisions(p, dx, dy) {
+  const length = Math.hypot(dx, dy);
+  if (length <= 0.0001) return;
+  const stepSize = clamp(p.r * 0.38, 4, 9);
+  const substeps = Math.max(1, Math.ceil(length / stepSize));
+  const moveX = dx / substeps;
+  const moveY = dy / substeps;
+  for (let stepIndex = 0; stepIndex < substeps; stepIndex += 1) {
+    let nextX = p.x + moveX;
+    let nextY = p.y + moveY;
+    for (let pass = 0; pass < 3; pass += 1) {
+      for (const other of getActiveCharacters()) {
+        if (other === p) continue;
+        const minDistance = getCharacterCollisionDistance(p, other);
+        let ox = nextX - other.x;
+        let oy = nextY - other.y;
+        let d = Math.hypot(ox, oy);
+        if (d >= minDistance) continue;
+        registerMovingScreenContact(p, other);
+        if (d < 0.001) {
+          ox = Math.abs(moveX) + Math.abs(moveY) > 0 ? -moveX : 1;
+          oy = Math.abs(moveX) + Math.abs(moveY) > 0 ? -moveY : 0;
+          d = Math.max(0.001, Math.hypot(ox, oy));
+        }
+        nextX = other.x + (ox / d) * minDistance;
+        nextY = other.y + (oy / d) * minDistance;
+      }
+    }
+    p.x = clamp(nextX, 80, court.w - 80);
+    p.y = clamp(nextY, 72, court.h - 72);
+  }
+}
+
+function getCharacterCollisionDistance(a, b) {
+  const screenPadding = isActivePlayerScreener(a) || isActivePlayerScreener(b) ? 12 : 8;
+  return a.r + b.r + screenPadding;
+}
+
+function registerMovingScreenContact(a, b) {
+  if (isActivePlayerScreener(a) && getCpuTeam().includes(b)) registerScreenContact(b);
+  if (isActivePlayerScreener(b) && getCpuTeam().includes(a)) registerScreenContact(a);
 }
 
 function applyCharacterSettings() {
@@ -1418,8 +1458,11 @@ function update(dt) {
   }
 
   const speed = getCharacterMoveSpeed(controlled, dash, moving > 0, step);
-  controlled.x += (moving ? moveX / Math.max(1, moving) : 0) * speed * step;
-  controlled.y += (moving ? moveY / Math.max(1, moving) : 0) * speed * step;
+  moveCharacterWithCollisions(
+    controlled,
+    (moving ? moveX / Math.max(1, moving) : 0) * speed * step,
+    (moving ? moveY / Math.max(1, moving) : 0) * speed * step
+  );
   moveCharacter(controlled);
   constrainPlayerToAssignedZone();
   for (const member of playerRoster) member.cooldown = Math.max(0, member.cooldown - step);
@@ -2034,7 +2077,7 @@ function getActiveCharacters() {
 
 function resolveCharacterCollisions() {
   const characters = getActiveCharacters();
-  for (let pass = 0; pass < 3; pass += 1) {
+  for (let pass = 0; pass < 5; pass += 1) {
     for (let i = 0; i < characters.length; i += 1) {
       for (let j = i + 1; j < characters.length; j += 1) {
         separateCharacters(characters[i], characters[j]);
@@ -2048,7 +2091,7 @@ function resolveCharacterCollisions() {
 }
 
 function separateCharacters(a, b) {
-  const minDistance = a.r + b.r + 8;
+  const minDistance = getCharacterCollisionDistance(a, b);
   let dx = b.x - a.x;
   let dy = b.y - a.y;
   let d = Math.hypot(dx, dy);
@@ -2066,14 +2109,14 @@ function separateCharacters(a, b) {
   if (block.defense && isCpuBallChecker(block.defense) && block.offense && block.offense !== getPlayerHandler()) {
     aPush = block.offense === a ? 0.92 : 0.08;
   }
-  const aIsScreener = isActivePlayerScreener(a) && getCpuTeam().includes(b);
-  const bIsScreener = isActivePlayerScreener(b) && getCpuTeam().includes(a);
+  const aIsScreener = isActivePlayerScreener(a);
+  const bIsScreener = isActivePlayerScreener(b);
   if (aIsScreener) {
-    aPush = 0.08;
-    registerScreenContact(b);
+    aPush = 0;
+    if (getCpuTeam().includes(b)) registerScreenContact(b);
   } else if (bIsScreener) {
-    aPush = 0.92;
-    registerScreenContact(a);
+    aPush = 1;
+    if (getCpuTeam().includes(a)) registerScreenContact(a);
   }
   const bPush = 1 - aPush;
 
@@ -2101,7 +2144,7 @@ function isActivePlayerScreener(p) {
 }
 
 function registerScreenContact(defender) {
-  defender.screenedUntil = Math.max(defender.screenedUntil || 0, state.time + 560);
+  defender.screenedUntil = Math.max(defender.screenedUntil || 0, state.time + 780);
   if (state.screenPlay && !state.screenPlay.hit) {
     state.screenPlay.hit = true;
     showMessage("Screen hit");
