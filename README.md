@@ -2,7 +2,7 @@
 
 Version: `0.9.0`
 
-iPad landscape first basketball prototype for testing shot feel and small-team to 5v5 spacing. In 5v5, both teams use wide half-court spacing and man-to-man defense.
+iPad landscape first basketball prototype for testing shot feel and small-team to 5v5 spacing. In 5v5, both teams use wide half-court spacing and a standard 2-3 zone defense.
 
 ## Play
 

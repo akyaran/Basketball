@@ -46,7 +46,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.9.1";
+const APP_VERSION = "0.9.2";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -695,19 +695,19 @@ function getFiveOnFiveStartSpots(possession) {
       playerWing: { x: 1106, y: 634 },
       playerBig: { x: 1288, y: 94 },
       playerCorner: { x: 1288, y: 726 },
-      defender: { x: 1008, y: 410 },
-      cpuMate: { x: 1174, y: 198 },
-      cpuWing: { x: 1174, y: 622 },
-      cpuBig: { x: 1346, y: 112 },
-      cpuCorner: { x: 1346, y: 708 },
+      defender: { x: 1146, y: 275 },
+      cpuMate: { x: 1146, y: 545 },
+      cpuWing: { x: 1320, y: 175 },
+      cpuBig: { x: 1362, y: 410 },
+      cpuCorner: { x: 1320, y: 645 },
     };
   }
   return {
-    player: { x: 534, y: 410 },
-    teammate: { x: 368, y: 198 },
-    playerWing: { x: 368, y: 622 },
-    playerBig: { x: 196, y: 112 },
-    playerCorner: { x: 196, y: 708 },
+    player: { x: 396, y: 275 },
+    teammate: { x: 396, y: 545 },
+    playerWing: { x: 222, y: 175 },
+    playerBig: { x: 180, y: 410 },
+    playerCorner: { x: 222, y: 645 },
     defender: { x: 612, y: 410 },
     cpuMate: { x: 436, y: 186 },
     cpuWing: { x: 436, y: 634 },
@@ -1332,6 +1332,7 @@ function update(dt) {
   controlled.x += (moving ? moveX / Math.max(1, moving) : 0) * speed * step;
   controlled.y += (moving ? moveY / Math.max(1, moving) : 0) * speed * step;
   moveCharacter(controlled);
+  constrainPlayerToAssignedZone();
   for (const member of playerRoster) member.cooldown = Math.max(0, member.cooldown - step);
   state.cpuPassCooldown = Math.max(0, state.cpuPassCooldown - step);
 
@@ -1400,7 +1401,7 @@ function finishGame() {
 function updateCpuDefense(step) {
   const handler = getPlayerHandler();
   if (isFiveOnFive()) {
-    updateFiveOnFiveManDefense(getCpuTeam(), getPlayerTeam(), handler, step);
+    updateFiveOnFiveTwoThreeDefense(getCpuTeam(), handler, step);
     getPlayerOffBalls().forEach((offBall) => moveOffBallPlayer(offBall, handler, step));
     return;
   }
@@ -1599,28 +1600,58 @@ function getDefenseMatchups(defenders, targets) {
   });
 }
 
-function updateFiveOnFiveManDefense(defenseTeam, offenseTeam, handler, step, controlledDefender = null) {
+function updateFiveOnFiveTwoThreeDefense(defenseTeam, handler, step, controlledDefender = null) {
+  const hoop = getAttackHoopForCharacter(handler);
+  const homes = getTwoThreeZoneHomes(hoop);
+  const checkerIndex = getTwoThreeCheckerIndex(handler, hoop);
   defenseTeam.forEach((agent, index) => {
     if (agent === controlledDefender) return;
-    const target = offenseTeam[index];
-    if (!target) return;
-    const onBall = target === handler;
-    const spot = getManToManGuardSpot(target, handler, onBall, index);
-    const needsRecovery = distance(agent, spot) > (onBall ? 126 : 178);
-    moveCharacterToward(agent, spot, step, needsRecovery, 4);
+    const checkingBall = index === checkerIndex;
+    const spot = checkingBall
+      ? getFrontGuardSpot(handler, state.timingActive ? 58 : 72)
+      : getTwoThreeShellSpot(homes[index], handler, hoop, index);
+    const urgent = checkingBall && distance(agent, spot) > 112;
+    moveCharacterToward(agent, spot, step, urgent, 4);
   });
 }
 
-function getManToManGuardSpot(target, handler, onBall, index) {
-  const cushion = onBall ? (state.timingActive ? 58 : 78) : distance(target, handler) < 255 ? 62 : 84;
-  const base = getFrontGuardSpot(target, cushion);
-  if (onBall) return base;
-  const shade = distance(target, handler) < 255 ? 0.1 : 0.06;
-  const jitter = getZoneJitter(target, index + 11, 5);
+function getTwoThreeZoneHomes(hoop) {
+  const outward = hoop === court.rightHoop ? -1 : 1;
+  return [
+    { x: hoop.x + outward * 310, y: hoop.y - 135 },
+    { x: hoop.x + outward * 310, y: hoop.y + 135 },
+    { x: hoop.x + outward * 136, y: hoop.y - 235 },
+    { x: hoop.x + outward * 94, y: hoop.y },
+    { x: hoop.x + outward * 136, y: hoop.y + 235 },
+  ];
+}
+
+function getTwoThreeCheckerIndex(handler, hoop) {
+  const rimDistance = distance(handler, hoop);
+  const laneOffset = handler.y - hoop.y;
+  if (rimDistance < 190) return 3;
+  if (Math.abs(laneOffset) > 205 && rimDistance < 390) return laneOffset < 0 ? 2 : 4;
+  return laneOffset < 0 ? 0 : 1;
+}
+
+function getTwoThreeShellSpot(home, handler, hoop, index) {
+  const isFront = index < 2;
+  const isCenter = index === 3;
+  const sameSide = Math.sign(home.y - hoop.y) === Math.sign(handler.y - hoop.y);
+  const shift = isCenter ? 0.06 : isFront ? 0.16 : sameSide ? 0.14 : 0.08;
+  const jitter = getZoneJitter(handler, index + 17, isCenter ? 3 : 6);
   return {
-    x: clamp(base.x * (1 - shade) + handler.x * shade + jitter.x, 80, court.w - 80),
-    y: clamp(base.y * (1 - shade) + handler.y * shade + jitter.y, 72, court.h - 72),
+    x: clamp(home.x * (1 - shift) + handler.x * shift + jitter.x, 80, court.w - 80),
+    y: clamp(home.y * (1 - shift) + handler.y * shift + jitter.y, 72, court.h - 72),
   };
+}
+
+function constrainPlayerToAssignedZone() {
+  if (state.possession !== "cpu" || !isFiveOnFive() || state.possessionTransition) return;
+  const hoop = getAttackHoop("cpu");
+  const outerEdge = court.w * 0.5 - 54;
+  player.x = clamp(player.x, hoop.x + 70, outerEdge);
+  player.y = clamp(player.y, 72, hoop.y + 34);
 }
 
 function moveOffBallPlayer(agent, handler, step, index = 0) {
@@ -1829,7 +1860,7 @@ function getCpuPassUrgency(handler, target, handlerSpace) {
 
 function updatePlayerHelpDefense(step, handler) {
   if (isFiveOnFive()) {
-    updateFiveOnFiveManDefense(getPlayerTeam(), getCpuTeam(), handler, step, player);
+    updateFiveOnFiveTwoThreeDefense(getPlayerTeam(), handler, step, player);
     return;
   }
   updatePlayerZoneDefense(handler, step);
@@ -1966,8 +1997,7 @@ function separateCharacters(a, b) {
 function isCpuBallChecker(p) {
   if (state.possession !== "player" || !isTwoOnTwo() || !getCpuTeam().includes(p)) return false;
   if (isFiveOnFive()) {
-    const handlerIndex = getPlayerTeam().indexOf(getPlayerHandler());
-    return p === getCpuTeam()[handlerIndex];
+    return p === getCpuTeam()[getTwoThreeCheckerIndex(getPlayerHandler(), getAttackHoop("player"))];
   }
   const rimProtector = getCpuTeam()[0];
   if (p === rimProtector) return false;
