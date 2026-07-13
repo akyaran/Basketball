@@ -47,7 +47,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.9.6";
+const APP_VERSION = "0.9.7";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -91,7 +91,7 @@ const state = {
   mode: "timing",
   time: 0,
   last: performance.now(),
-  slowEnabled: false,
+  slowEnabled: true,
   slowUntil: 0,
   shake: 0,
   playerScore: 0,
@@ -3118,6 +3118,6 @@ if ("serviceWorker" in navigator) {
 loadSettings();
 applySettingsToControls();
 syncSettings();
-setSlowEnabled(false, false);
+setSlowEnabled(true, false);
 resize();
 requestAnimationFrame(loop);
