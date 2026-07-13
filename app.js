@@ -47,7 +47,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.9.7";
+const APP_VERSION = "0.9.8";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -625,7 +625,7 @@ function updateStamina(p, dashing, moving, step) {
 function getCharacterMoveSpeed(p, wantsDash, moving, step) {
   const dashing = Boolean(wantsDash && moving && (p.stamina ?? 1) > 0.12);
   updateStamina(p, dashing, moving, step);
-  const screenedScale = (p.screenedUntil || 0) > state.time ? 0.38 : 1;
+  const screenedScale = (p.screenedUntil || 0) > state.time ? 0.22 : 1;
   const stealRecoveryScale = (p.stealRecoveryUntil || 0) > state.time ? 0.4 : 1;
   return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale() * screenedScale * stealRecoveryScale;
 }
@@ -680,7 +680,7 @@ function moveCharacterWithCollisions(p, dx, dy) {
 }
 
 function getCharacterCollisionDistance(a, b) {
-  const screenPadding = isActivePlayerScreener(a) || isActivePlayerScreener(b) ? 12 : 8;
+  const screenPadding = isActivePlayerScreener(a) || isActivePlayerScreener(b) ? 24 : 8;
   return a.r + b.r + screenPadding;
 }
 
@@ -2342,7 +2342,7 @@ function isActivePlayerScreener(p) {
 }
 
 function registerScreenContact(defender) {
-  defender.screenedUntil = Math.max(defender.screenedUntil || 0, state.time + 780);
+  defender.screenedUntil = Math.max(defender.screenedUntil || 0, state.time + 1120);
   if (state.screenPlay && !state.screenPlay.hit) {
     state.screenPlay.hit = true;
     showMessage("Screen hit");

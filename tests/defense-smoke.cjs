@@ -122,6 +122,9 @@ const anchoredScreenY = testScreener.y;
 separateCharacters(testScreener, screenedDefender);
 globalThis.testResult.screenedUntil = screenedDefender.screenedUntil;
 globalThis.testResult.anchoredScreen = { x: testScreener.x, y: testScreener.y, anchoredScreenX, anchoredScreenY };
+const screenCollisionDistance = getCharacterCollisionDistance(testScreener, screenedDefender);
+const screenSlowSpeed = getCharacterMoveSpeed(screenedDefender, false, true, 0.016);
+globalThis.testResult.screenBlock = { screenCollisionDistance, screenSlowSpeed };
 clearPlayerScreen();
 getActiveCharacters().forEach((character, index) => {
   character.x = 110 + (index % 5) * 260;
@@ -232,6 +235,8 @@ assert.equal(result.screenPhase, "holding");
 assert.ok(result.screenedUntil > 0);
 assert.equal(result.anchoredScreen.x, result.anchoredScreen.anchoredScreenX);
 assert.equal(result.anchoredScreen.y, result.anchoredScreen.anchoredScreenY);
+assert.ok(result.screenBlock.screenCollisionDistance >= 64);
+assert.ok(result.screenBlock.screenSlowSpeed <= 50);
 assert.ok(result.playerBlock.x <= result.playerBlock.maxX + 0.1);
 assert.ok(result.playerBlock.distance >= result.playerBlock.solidDistance - 0.1);
 assert.ok(result.defenderBlock.x >= result.defenderBlock.minX - 0.1);
