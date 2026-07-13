@@ -2,7 +2,7 @@
 
 Version: `0.9.0`
 
-iPad landscape first basketball prototype for testing shot feel and small-team to 5v5 spacing. Player defense is automatic until the stick is moved, PASS switches the controlled defender, and 5v5 includes wide spacing, a standard 2-3 zone defense, and callable pick-and-roll actions.
+iPad landscape first basketball prototype for testing shot feel and small-team to 5v5 spacing. Player defense is automatic until the stick is moved, PASS switches the controlled defender, live passes can be intercepted by either team, and nearby defenders can use a timing-based steal attempt.
 
 ## Play
 

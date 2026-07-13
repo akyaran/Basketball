@@ -47,7 +47,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.9.5";
+const APP_VERSION = "0.9.6";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const DEFAULT_SETTINGS = {
   defense: 0.65,
@@ -119,11 +119,13 @@ const state = {
   messageTimer: 0,
   message: "Ready",
   timingActive: false,
+  timingAction: null,
   timingValue: 0,
   timingDir: 1,
   timingHold: 0,
   timingStartContest: 0,
   timingZone: { start: 0.38, end: 0.62, center: 0.5, size: 0.24 },
+  stealAttempt: null,
   shotCharge: 0,
   aimVector: { x: 0, y: -1 },
   particles: [],
@@ -624,7 +626,8 @@ function getCharacterMoveSpeed(p, wantsDash, moving, step) {
   const dashing = Boolean(wantsDash && moving && (p.stamina ?? 1) > 0.12);
   updateStamina(p, dashing, moving, step);
   const screenedScale = (p.screenedUntil || 0) > state.time ? 0.38 : 1;
-  return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale() * screenedScale;
+  const stealRecoveryScale = (p.stealRecoveryUntil || 0) > state.time ? 0.4 : 1;
+  return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale() * screenedScale * stealRecoveryScale;
 }
 
 function moveCharacterToward(p, target, step, wantsDash = false, stopDistance = 3) {
@@ -720,6 +723,8 @@ function setPossession(possession) {
   state.ball = null;
   state.shotCharge = 0;
   state.timingActive = false;
+  state.timingAction = null;
+  state.stealAttempt = null;
   state.timingHold = 0;
   state.dunkFx = null;
   meter.classList.remove("show");
@@ -798,6 +803,8 @@ function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   state.passBall = null;
   state.shotCharge = 0;
   state.timingActive = false;
+  state.timingAction = null;
+  state.stealAttempt = null;
   state.timingHold = 0;
   input.shootingId = null;
   meter.classList.remove("show");
@@ -899,6 +906,8 @@ function finishPossessionTransitionAtSpots(possession, receiverKey = null) {
   state.ball = null;
   state.shotCharge = 0;
   state.timingActive = false;
+  state.timingAction = null;
+  state.stealAttempt = null;
   state.timingHold = 0;
   state.dunkFx = null;
   meter.classList.remove("show");
@@ -923,6 +932,10 @@ function addBurst(x, y, color, count = 16) {
 function startShot(pointer) {
   if (!state.started) return;
   if (state.possessionTransition) return;
+  if (state.possession === "cpu") {
+    startSteal(pointer);
+    return;
+  }
   if (state.possession !== "player") return;
   if (state.ball || state.passBall || getPlayerHandler().cooldown > 0) return;
 
@@ -941,13 +954,44 @@ function startShot(pointer) {
 
   if (state.mode === "timing") {
     state.timingActive = true;
+    state.timingAction = "shot";
     state.timingValue = 0;
     state.timingDir = 1;
     state.timingHold = 0;
     state.timingStartContest = getContestPressure();
-    updateTimingZone();
+    updateActiveTimingZone();
     meter.classList.add("show");
   }
+}
+
+function startSteal(pointer) {
+  if (state.ball || state.passBall || state.timingActive) return;
+  const defender = getPlayerControlledDefender();
+  const handler = getCpuHandler();
+  const stealDistance = distance(defender, handler);
+  if ((defender.stealCooldownUntil || 0) > state.time) {
+    showMessage("Reach cooldown");
+    return;
+  }
+  if (stealDistance > 92) {
+    showMessage("Too far to steal");
+    return;
+  }
+  input.shootingId = pointer.pointerId;
+  state.timingActive = true;
+  state.timingAction = "steal";
+  state.timingValue = 0;
+  state.timingDir = 1;
+  state.timingHold = 0;
+  state.stealAttempt = {
+    defenderKey: getPlayerKey(defender),
+    handlerKey: getCpuKey(handler),
+    invalid: false,
+  };
+  state.slowUntil = state.time + 1000;
+  updateActiveTimingZone();
+  meter.classList.add("show");
+  showMessage("Steal timing");
 }
 
 function updateShotDrag(pointer) {
@@ -965,6 +1009,10 @@ function updateShotDrag(pointer) {
 function releaseShot(pointer) {
   if (input.shootingId !== pointer.pointerId) return;
   input.shootingId = null;
+  if (state.timingAction === "steal") {
+    resolveStealTiming();
+    return;
+  }
   if (state.mode === "timing") {
     shootTiming();
   } else {
@@ -987,7 +1035,7 @@ function shootAim() {
 }
 
 function shootTiming() {
-  updateTimingZone();
+  updateActiveTimingZone();
   const zone = state.timingZone;
   const half = zone.size / 2;
   const error = Math.abs(state.timingValue - zone.center);
@@ -995,9 +1043,49 @@ function shootTiming() {
   const timingFit = inside ? 1 : 1 - clamp((error - half) / 0.28, 0, 1);
   const rhythmBonus = inside ? 0.18 : 0;
   state.timingActive = false;
+  state.timingAction = null;
   state.timingHold = 0;
   meter.classList.remove("show");
   launchShot(clamp(timingFit + rhythmBonus, 0, 1), "timing", inside);
+}
+
+function resolveStealTiming() {
+  updateActiveTimingZone();
+  const attempt = state.stealAttempt;
+  const defender = attempt ? getCharacterByKey(attempt.defenderKey) : null;
+  const handler = attempt ? getCharacterByKey(attempt.handlerKey) : null;
+  const zone = state.timingZone;
+  const inside = state.timingValue >= zone.start && state.timingValue <= zone.end;
+  const liveDistance = defender && handler ? distance(defender, handler) : Infinity;
+  const successful = Boolean(attempt && defender && handler && state.possession === "cpu" && !state.ball && !state.passBall && !attempt.invalid && liveDistance <= 110 && inside);
+  if (successful) {
+    commitLiveTurnover("player", defender, "Steal");
+    return;
+  }
+  failStealAttempt(defender);
+}
+
+function failStealAttempt(defender = state.stealAttempt ? getCharacterByKey(state.stealAttempt.defenderKey) : null) {
+  if (defender) {
+    defender.stealRecoveryUntil = state.time + 700;
+    defender.stealCooldownUntil = state.time + 1000;
+  }
+  clearTimingAction();
+  showMessage("Reach");
+}
+
+function clearTimingAction() {
+  state.timingActive = false;
+  state.timingAction = null;
+  state.timingHold = 0;
+  state.stealAttempt = null;
+  input.shootingId = null;
+  meter.classList.remove("show");
+}
+
+function cancelStealAttempt() {
+  if (state.timingAction !== "steal") return;
+  clearTimingAction();
 }
 
 function launchShot(skill, source, perfectTiming) {
@@ -1090,6 +1178,7 @@ function getFinishOpportunity(offense, defense, moveVector) {
 }
 
 function launchFinish(owner, kind, quality) {
+  if (owner === "cpu") cancelStealAttempt();
   const offense = owner === "player" ? getPlayerHandler() : getCpuHandler();
   const defense = owner === "player" ? getNearestCpuDefender(offense) : getNearestPlayerDefender(offense);
   const hoop = getAttackHoop(owner);
@@ -1292,29 +1381,36 @@ function passCpuBallTo(to) {
 }
 
 function startPass(owner, from, to, nextHandler) {
+  if (owner === "cpu") cancelStealAttempt();
+  const startX = from.x + 14;
+  const startY = from.y - 12;
+  const targetX = to.x + 14;
+  const targetY = to.y - 12;
   state.passBall = {
     owner,
     nextHandler,
-    startX: from.x + 14,
-    startY: from.y - 12,
-    targetX: to.x + 14,
-    targetY: to.y - 12,
-    x: from.x + 14,
-    y: from.y - 12,
+    startX,
+    startY,
+    targetX,
+    targetY,
+    x: startX,
+    y: startY,
     t: 0,
     duration: 0.24,
+    interceptions: getPassInterceptionAttempts(owner, { x: startX, y: startY }, { x: targetX, y: targetY }),
   };
   showMessage(owner === "player" ? "Pass" : "CPU pass");
 }
 
 function updatePassBall(step) {
-  if (!state.passBall) return;
+  if (!state.passBall) return false;
   const p = state.passBall;
   p.t += step / p.duration;
   const t = clamp(p.t, 0, 1);
   const ease = 1 - Math.pow(1 - t, 2);
   p.x = p.startX + (p.targetX - p.startX) * ease;
   p.y = p.startY + (p.targetY - p.startY) * ease;
+  if (resolvePassInterceptions(p)) return true;
   if (t >= 1) {
     if (p.owner === "player") {
       state.playerHandler = p.nextHandler;
@@ -1329,9 +1425,79 @@ function updatePassBall(step) {
     }
     state.passBall = null;
   }
+  return false;
+}
+
+function getPassInterceptionAttempts(owner, start, end) {
+  const defenders = owner === "player" ? getCpuTeam() : getPlayerTeam();
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const length = Math.hypot(dx, dy);
+  const lengthSquared = Math.max(1, dx * dx + dy * dy);
+  return defenders
+    .map((defender) => {
+      const progress = ((defender.x - start.x) * dx + (defender.y - start.y) * dy) / lengthSquared;
+      if (progress <= 0.08 || progress >= 0.92) return null;
+      const point = { x: start.x + dx * progress, y: start.y + dy * progress };
+      const laneDistance = distance(defender, point);
+      const laneRadius = defender.r + 16;
+      if (laneDistance > laneRadius) return null;
+      const toPass = normalizeVector({ x: point.x - defender.x, y: point.y - defender.y });
+      const toBallHandler = normalizeVector({ x: start.x - defender.x, y: start.y - defender.y });
+      const facing = clamp((toPass.x * toBallHandler.x + toPass.y * toBallHandler.y + 1) / 2, 0, 1);
+      const closeness = 1 - laneDistance / laneRadius;
+      const center = 1 - Math.abs(progress - 0.5) * 2;
+      const longPass = clamp((length - 120) / 540, 0, 1);
+      const chance = clamp(0.1 + closeness * 0.44 + facing * 0.1 + center * 0.1 + longPass * 0.08, 0.1, 0.82);
+      return {
+        defenderKey: owner === "player" ? getCpuKey(defender) : getPlayerKey(defender),
+        time: 1 - Math.sqrt(1 - progress),
+        success: Math.random() < chance,
+        checked: false,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.time - b.time);
+}
+
+function resolvePassInterceptions(pass) {
+  for (const attempt of pass.interceptions || []) {
+    if (attempt.checked || pass.t < attempt.time) continue;
+    attempt.checked = true;
+    if (!attempt.success) continue;
+    const interceptor = getCharacterByKey(attempt.defenderKey);
+    commitLiveTurnover(pass.owner === "player" ? "cpu" : "player", interceptor, pass.owner === "player" ? "Pass cut" : "Pass cut");
+    return true;
+  }
+  return false;
+}
+
+function commitLiveTurnover(possession, interceptor, message) {
+  clearPlayerScreen();
+  state.possession = possession;
+  state.manualDefense = false;
+  state.possessionTransition = null;
+  state.recoveryBall = null;
+  state.passBall = null;
+  state.ball = null;
+  state.playerHandler = possession === "player" ? getPlayerKey(interceptor) : "player";
+  state.cpuHandler = possession === "cpu" ? getCpuKey(interceptor) : "defender";
+  state.cpuShotTimer = possession === "cpu" ? 0.48 : 0;
+  state.cpuMoveTimer = 0;
+  state.cpuMoveStyle = "probe";
+  state.cpuBurst = 1;
+  state.cpuPassCooldown = 0.5;
+  state.shotClock = 24;
+  state.shotCharge = 0;
+  state.timingStartContest = 0;
+  state.dunkFx = null;
+  clearTimingAction();
+  addBurst(interceptor.x, interceptor.y, possession === "player" ? "#f5bf45" : "#4aa3df", 20);
+  showMessage(message);
 }
 
 function launchCpuShot() {
+  cancelStealAttempt();
   const shooter = getCpuHandler();
   const primaryDefender = getNearestPlayerDefender(shooter);
   const profile = getCpuShotProfile(shooter, primaryDefender);
@@ -1469,7 +1635,12 @@ function update(dt) {
     return;
   }
 
-  updatePassBall(step);
+  const passWasIntercepted = updatePassBall(step);
+  if (passWasIntercepted) {
+    updateParticles(step);
+    updateHud();
+    return;
+  }
   if (updateShotClock(step)) {
     updateParticles(step);
     updateHud();
@@ -1510,7 +1681,10 @@ function update(dt) {
       state.timingDir = 1;
     }
     needle.style.top = `${state.timingValue * (meter.clientHeight - 5)}px`;
-    updateTimingZone();
+    updateActiveTimingZone();
+    if (state.timingAction === "steal" && state.stealAttempt?.invalid) {
+      failStealAttempt();
+    }
     state.shotCharge = state.timingValue;
   }
 
@@ -2230,6 +2404,27 @@ function updateTimingZone() {
   sweet.style.height = `${size * meterH}px`;
 }
 
+function updateStealTimingZone() {
+  const meterH = Math.max(1, meter.clientHeight);
+  const attempt = state.stealAttempt;
+  const defender = attempt ? getCharacterByKey(attempt.defenderKey) : null;
+  const handler = attempt ? getCharacterByKey(attempt.handlerKey) : null;
+  const stealDistance = defender && handler ? distance(defender, handler) : Infinity;
+  if (attempt) attempt.invalid = stealDistance > 110 || state.possession !== "cpu" || Boolean(state.ball || state.passBall);
+  const closeFit = clamp((92 - stealDistance) / 42, 0, 1);
+  const patiencePressure = clamp(state.timingHold / 2, 0, 1);
+  const size = clamp(0.08 + closeFit * 0.18 - patiencePressure * 0.08, 0.035, 0.26);
+  const start = 0.5 - size / 2;
+  state.timingZone = { start, end: start + size, center: 0.5, size };
+  sweet.style.top = `${start * meterH}px`;
+  sweet.style.height = `${size * meterH}px`;
+}
+
+function updateActiveTimingZone() {
+  if (state.timingAction === "steal") updateStealTimingZone();
+  else updateTimingZone();
+}
+
 function getContestPressure() {
   const shooter = getPlayerHandler();
   return getContestPressureFor(shooter, getNearestCpuDefender(shooter));
@@ -2258,7 +2453,7 @@ function syncSettings() {
   screenButton.hidden = getPlayerCount() < 2;
   applyCharacterSettings();
   if (state.w > 0 && state.h > 0) updateCamera(true);
-  if (state.timingActive) updateTimingZone();
+  if (state.timingActive) updateActiveTimingZone();
   saveSettings();
 }
 
@@ -2416,7 +2611,11 @@ function updateHud() {
     return;
   }
   if (state.possession === "cpu") {
-    shotReadout.textContent = state.ball ? "Box out" : state.manualDefense ? "Manual" : "Auto defense";
+    if (state.timingAction === "steal") {
+      shotReadout.textContent = `Steal ${Math.round(state.timingZone.size * 100)}%`;
+    } else {
+      shotReadout.textContent = state.ball ? "Box out" : state.manualDefense ? "Manual" : "Auto defense";
+    }
     return;
   }
   if (state.timingActive) {
