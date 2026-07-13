@@ -483,7 +483,8 @@ button {
 
 .setting-row,
 .slider-row,
-.select-row {
+.select-row,
+.preset-row {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px 14px;
@@ -494,14 +495,16 @@ button {
 .setting-row span,
 .slider-row span,
 .slider-row strong,
-.select-row span {
+.select-row span,
+.preset-row span {
   font-size: 14px;
   font-weight: 900;
 }
 
 .setting-row span,
 .slider-row span,
-.select-row span {
+.select-row span,
+.preset-row span {
   color: rgba(247, 241, 227, 0.78);
 }
 
@@ -511,7 +514,8 @@ button {
   accent-color: #f5bf45;
 }
 
-.select-row select {
+.select-row select,
+.preset-row select {
   min-width: 92px;
   border: 1px solid rgba(247, 241, 227, 0.18);
   border-radius: 8px;
@@ -520,6 +524,29 @@ button {
   font: inherit;
   font-weight: 900;
   padding: 8px 10px;
+}
+
+.preset-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.preset-actions button {
+  min-height: 42px;
+  border: 1px solid rgba(247, 241, 227, 0.18);
+  border-radius: 8px;
+  background: rgba(247, 241, 227, 0.08);
+  color: #f7f1e3;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+.preset-actions #savePresetButton {
+  border-color: rgba(153, 214, 194, 0.54);
+  color: #99d6c2;
 }
 
 .segmented-control {

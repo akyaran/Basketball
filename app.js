@@ -27,6 +27,9 @@ const characterSizeSlider = document.getElementById("characterSizeSlider");
 const moveSpeedSlider = document.getElementById("moveSpeedSlider");
 const cameraZoomSlider = document.getElementById("cameraZoomSlider");
 const gameTimeSelect = document.getElementById("gameTimeSelect");
+const presetSelect = document.getElementById("presetSelect");
+const loadPresetButton = document.getElementById("loadPresetButton");
+const savePresetButton = document.getElementById("savePresetButton");
 const defenseValue = document.getElementById("defenseValue");
 const distanceValue = document.getElementById("distanceValue");
 const meterSpeedValue = document.getElementById("meterSpeedValue");
@@ -47,8 +50,11 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.9.8";
+const APP_VERSION = "0.9.9";
 const SETTINGS_KEY = "basketball-1v1-settings";
+const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
+const STEAL_MAX_DISTANCE = 88;
+const STEAL_CONTACT_DISTANCE = 68;
 const DEFAULT_SETTINGS = {
   defense: 0.65,
   distance: 0.65,
@@ -133,6 +139,7 @@ const state = {
 };
 
 const settings = { ...DEFAULT_SETTINGS };
+const settingsPresets = [null, null, null];
 
 const court = {
   x: 0,
@@ -571,16 +578,53 @@ function loadSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
     if (!saved) return;
-    settings.defense = readSetting(saved.defense, DEFAULT_SETTINGS.defense);
-    settings.distance = readSetting(saved.distance, DEFAULT_SETTINGS.distance);
-    settings.meterSpeed = readSetting(saved.meterSpeed, DEFAULT_SETTINGS.meterSpeed);
-    settings.characterSize = readSetting(saved.characterSize, DEFAULT_SETTINGS.characterSize);
-    settings.moveSpeed = readSetting(saved.moveSpeed, DEFAULT_SETTINGS.moveSpeed);
-    settings.cameraZoom = readSetting(saved.cameraZoom, DEFAULT_SETTINGS.cameraZoom);
-    settings.gameSeconds = readGameSeconds(saved.gameSeconds, DEFAULT_SETTINGS.gameSeconds);
-    settings.players = saved.players === "5v5" ? "5v5" : saved.players === "3v3" ? "3v3" : saved.players === "2v2" ? "2v2" : "1v1";
+    applySettingsSnapshot(saved);
   } catch (error) {
     Object.assign(settings, DEFAULT_SETTINGS);
+  }
+}
+
+function getSettingsSnapshot() {
+  return {
+    defense: settings.defense,
+    distance: settings.distance,
+    meterSpeed: settings.meterSpeed,
+    characterSize: settings.characterSize,
+    moveSpeed: settings.moveSpeed,
+    cameraZoom: settings.cameraZoom,
+    gameSeconds: settings.gameSeconds,
+    players: settings.players,
+  };
+}
+
+function applySettingsSnapshot(snapshot) {
+  settings.defense = readSetting(snapshot?.defense, DEFAULT_SETTINGS.defense);
+  settings.distance = readSetting(snapshot?.distance, DEFAULT_SETTINGS.distance);
+  settings.meterSpeed = readSetting(snapshot?.meterSpeed, DEFAULT_SETTINGS.meterSpeed);
+  settings.characterSize = readSetting(snapshot?.characterSize, DEFAULT_SETTINGS.characterSize);
+  settings.moveSpeed = readSetting(snapshot?.moveSpeed, DEFAULT_SETTINGS.moveSpeed);
+  settings.cameraZoom = readSetting(snapshot?.cameraZoom, DEFAULT_SETTINGS.cameraZoom);
+  settings.gameSeconds = readGameSeconds(snapshot?.gameSeconds, DEFAULT_SETTINGS.gameSeconds);
+  settings.players = snapshot?.players === "5v5" ? "5v5" : snapshot?.players === "3v3" ? "3v3" : snapshot?.players === "2v2" ? "2v2" : "1v1";
+}
+
+function loadSettingsPresets() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_PRESETS_KEY) || "null");
+    if (!Array.isArray(saved)) return;
+    settingsPresets.forEach((_, index) => {
+      settingsPresets[index] = saved[index] ? { ...saved[index] } : null;
+    });
+  } catch (error) {
+    settingsPresets.fill(null);
+  }
+}
+
+function saveSettingsPresets() {
+  try {
+    localStorage.setItem(SETTINGS_PRESETS_KEY, JSON.stringify(settingsPresets));
+  } catch (error) {
+    // Ignore storage failures so private browsing does not break gameplay.
   }
 }
 
@@ -606,6 +650,34 @@ function applySettingsToControls() {
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
   mode3v3Button.classList.toggle("active", settings.players === "3v3");
   mode5v5Button.classList.toggle("active", settings.players === "5v5");
+}
+
+function renderPresetOptions() {
+  if (!presetSelect?.options) return;
+  Array.from(presetSelect.options).forEach((option, index) => {
+    option.textContent = settingsPresets[index] ? `Slot ${index + 1} (saved)` : `Slot ${index + 1}`;
+  });
+}
+
+function saveSelectedPreset() {
+  const index = clamp(Number(presetSelect.value) || 0, 0, settingsPresets.length - 1);
+  settingsPresets[index] = getSettingsSnapshot();
+  saveSettingsPresets();
+  renderPresetOptions();
+  showMessage(`Saved slot ${index + 1}`);
+}
+
+function loadSelectedPreset() {
+  const index = clamp(Number(presetSelect.value) || 0, 0, settingsPresets.length - 1);
+  const preset = settingsPresets[index];
+  if (!preset) {
+    showMessage(`Slot ${index + 1} is empty`);
+    return;
+  }
+  applySettingsSnapshot(preset);
+  applySettingsToControls();
+  syncSettings();
+  showMessage(`Loaded slot ${index + 1}`);
 }
 
 function getCharacterScale() {
@@ -973,7 +1045,7 @@ function startSteal(pointer) {
     showMessage("Reach cooldown");
     return;
   }
-  if (stealDistance > 92) {
+  if (stealDistance > STEAL_MAX_DISTANCE) {
     showMessage("Too far to steal");
     return;
   }
@@ -1057,7 +1129,8 @@ function resolveStealTiming() {
   const zone = state.timingZone;
   const inside = state.timingValue >= zone.start && state.timingValue <= zone.end;
   const liveDistance = defender && handler ? distance(defender, handler) : Infinity;
-  const successful = Boolean(attempt && defender && handler && state.possession === "cpu" && !state.ball && !state.passBall && !attempt.invalid && liveDistance <= 110 && inside);
+  const successChance = getStealSuccessChance(liveDistance);
+  const successful = Boolean(attempt && defender && handler && state.possession === "cpu" && !state.ball && !state.passBall && !attempt.invalid && liveDistance <= STEAL_MAX_DISTANCE && inside && Math.random() < successChance);
   if (successful) {
     commitLiveTurnover("player", defender, "Steal");
     return;
@@ -1067,8 +1140,8 @@ function resolveStealTiming() {
 
 function failStealAttempt(defender = state.stealAttempt ? getCharacterByKey(state.stealAttempt.defenderKey) : null) {
   if (defender) {
-    defender.stealRecoveryUntil = state.time + 700;
-    defender.stealCooldownUntil = state.time + 1000;
+    defender.stealRecoveryUntil = state.time + 1050;
+    defender.stealCooldownUntil = state.time + 1750;
   }
   clearTimingAction();
   showMessage("Reach");
@@ -1733,6 +1806,7 @@ function updateCpuDefense(step) {
   if (isFiveOnFive()) {
     updateFiveOnFiveTwoThreeDefense(getCpuTeam(), handler, step);
     getPlayerOffBalls().forEach((offBall) => moveOffBallPlayer(offBall, handler, step));
+    updateCpuStealAttempt(step, handler);
     return;
   }
   updateCpuZoneDefense(handler, step);
@@ -1741,6 +1815,30 @@ function updateCpuDefense(step) {
     const offBalls = getPlayerOffBalls();
     offBalls.forEach((offBall, index) => moveOffBallPlayer(offBall, handler, step, index));
   }
+  updateCpuStealAttempt(step, handler);
+}
+
+function updateCpuStealAttempt(step, handler) {
+  if (state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.timingActive) return false;
+  const defender = getNearestCpuDefender(handler);
+  if (!defender || (defender.stealCooldownUntil || 0) > state.time) return false;
+  const stealDistance = distance(defender, handler);
+  if (stealDistance > STEAL_MAX_DISTANCE) return false;
+
+  const contactFit = getStealContactFit(stealDistance);
+  const attemptRate = 0.08 + contactFit * 0.4;
+  if (Math.random() >= step * attemptRate) return false;
+
+  defender.stealCooldownUntil = state.time + 1550;
+  const successChance = getStealSuccessChance(stealDistance) * 0.58;
+  if (Math.random() < successChance) {
+    commitLiveTurnover("cpu", defender, "CPU steal");
+    return true;
+  }
+
+  defender.stealRecoveryUntil = state.time + 900;
+  showMessage("CPU reach");
+  return false;
 }
 
 function updateCpuZoneDefense(handler, step) {
@@ -2410,14 +2508,23 @@ function updateStealTimingZone() {
   const defender = attempt ? getCharacterByKey(attempt.defenderKey) : null;
   const handler = attempt ? getCharacterByKey(attempt.handlerKey) : null;
   const stealDistance = defender && handler ? distance(defender, handler) : Infinity;
-  if (attempt) attempt.invalid = stealDistance > 110 || state.possession !== "cpu" || Boolean(state.ball || state.passBall);
-  const closeFit = clamp((92 - stealDistance) / 42, 0, 1);
-  const patiencePressure = clamp(state.timingHold / 2, 0, 1);
-  const size = clamp(0.08 + closeFit * 0.18 - patiencePressure * 0.08, 0.035, 0.26);
+  if (attempt) attempt.invalid = stealDistance > STEAL_MAX_DISTANCE || state.possession !== "cpu" || Boolean(state.ball || state.passBall);
+  const closeFit = getStealContactFit(stealDistance) ** 2;
+  const patiencePressure = clamp(state.timingHold / 1.6, 0, 1);
+  const size = clamp(0.014 + closeFit * 0.076 - patiencePressure * 0.016, 0.01, 0.09);
   const start = 0.5 - size / 2;
   state.timingZone = { start, end: start + size, center: 0.5, size };
   sweet.style.top = `${start * meterH}px`;
   sweet.style.height = `${size * meterH}px`;
+}
+
+function getStealContactFit(stealDistance) {
+  return clamp((STEAL_CONTACT_DISTANCE - stealDistance) / 20, 0, 1);
+}
+
+function getStealSuccessChance(stealDistance) {
+  const contactFit = getStealContactFit(stealDistance);
+  return clamp(0.015 + contactFit ** 5 * 0.82, 0.015, 0.835);
 }
 
 function updateActiveTimingZone() {
@@ -3080,6 +3187,8 @@ startButton.addEventListener("click", startGame);
 settingsButton.addEventListener("click", openSettings);
 closeSettingsButton.addEventListener("click", closeSettings);
 resetSettingsButton.addEventListener("click", resetSettings);
+savePresetButton.addEventListener("click", saveSelectedPreset);
+loadPresetButton.addEventListener("click", loadSelectedPreset);
 mode1v1Button.addEventListener("click", () => setPlayerMode("1v1"));
 mode2v2Button.addEventListener("click", () => setPlayerMode("2v2"));
 mode3v3Button.addEventListener("click", () => setPlayerMode("3v3"));
@@ -3116,7 +3225,9 @@ if ("serviceWorker" in navigator) {
 }
 
 loadSettings();
+loadSettingsPresets();
 applySettingsToControls();
+renderPresetOptions();
 syncSettings();
 setSlowEnabled(true, false);
 resize();
