@@ -23,6 +23,7 @@ const mode5v5Button = document.getElementById("mode5v5Button");
 const defenseSlider = document.getElementById("defenseSlider");
 const distanceSlider = document.getElementById("distanceSlider");
 const meterSpeedSlider = document.getElementById("meterSpeedSlider");
+const stealSuccessSlider = document.getElementById("stealSuccessSlider");
 const characterSizeSlider = document.getElementById("characterSizeSlider");
 const moveSpeedSlider = document.getElementById("moveSpeedSlider");
 const cameraZoomSlider = document.getElementById("cameraZoomSlider");
@@ -33,6 +34,7 @@ const savePresetButton = document.getElementById("savePresetButton");
 const defenseValue = document.getElementById("defenseValue");
 const distanceValue = document.getElementById("distanceValue");
 const meterSpeedValue = document.getElementById("meterSpeedValue");
+const stealSuccessValue = document.getElementById("stealSuccessValue");
 const characterSizeValue = document.getElementById("characterSizeValue");
 const moveSpeedValue = document.getElementById("moveSpeedValue");
 const cameraZoomValue = document.getElementById("cameraZoomValue");
@@ -50,7 +52,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.0";
+const APP_VERSION = "0.10.1";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -59,6 +61,7 @@ const DEFAULT_SETTINGS = {
   defense: 0.65,
   distance: 0.65,
   meterSpeed: 0.7,
+  stealSuccess: 0.65,
   characterSize: 0.38,
   moveSpeed: 0.55,
   cameraZoom: 0.48,
@@ -119,7 +122,8 @@ const state = {
   manualDefense: false,
   cpuHandler: "defender",
   passBall: null,
-  inbound: null,
+  freeThrow: null,
+  rebound: null,
   dunkFx: null,
   possessionTransition: null,
   recoveryBall: null,
@@ -590,6 +594,7 @@ function getSettingsSnapshot() {
     defense: settings.defense,
     distance: settings.distance,
     meterSpeed: settings.meterSpeed,
+    stealSuccess: settings.stealSuccess,
     characterSize: settings.characterSize,
     moveSpeed: settings.moveSpeed,
     cameraZoom: settings.cameraZoom,
@@ -602,6 +607,7 @@ function applySettingsSnapshot(snapshot) {
   settings.defense = readSetting(snapshot?.defense, DEFAULT_SETTINGS.defense);
   settings.distance = readSetting(snapshot?.distance, DEFAULT_SETTINGS.distance);
   settings.meterSpeed = readSetting(snapshot?.meterSpeed, DEFAULT_SETTINGS.meterSpeed);
+  settings.stealSuccess = readSetting(snapshot?.stealSuccess, DEFAULT_SETTINGS.stealSuccess);
   settings.characterSize = readSetting(snapshot?.characterSize, DEFAULT_SETTINGS.characterSize);
   settings.moveSpeed = readSetting(snapshot?.moveSpeed, DEFAULT_SETTINGS.moveSpeed);
   settings.cameraZoom = readSetting(snapshot?.cameraZoom, DEFAULT_SETTINGS.cameraZoom);
@@ -643,6 +649,7 @@ function applySettingsToControls() {
   defenseSlider.value = Math.round(settings.defense * 100);
   distanceSlider.value = Math.round(settings.distance * 100);
   meterSpeedSlider.value = Math.round(settings.meterSpeed * 100);
+  stealSuccessSlider.value = Math.round(settings.stealSuccess * 100);
   characterSizeSlider.value = Math.round(settings.characterSize * 100);
   moveSpeedSlider.value = Math.round(settings.moveSpeed * 100);
   cameraZoomSlider.value = Math.round(settings.cameraZoom * 100);
@@ -777,7 +784,8 @@ function setPossession(possession) {
   state.possessionTransition = null;
   state.recoveryBall = null;
   state.passBall = null;
-  state.inbound = null;
+  state.freeThrow = null;
+  state.rebound = null;
   state.playerHandler = "player";
   state.manualDefense = false;
   state.cpuHandler = "defender";
@@ -858,7 +866,8 @@ function setCharacterPosition(p, spot) {
 
 function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   clearPlayerScreen();
-  state.inbound = null;
+  state.freeThrow = null;
+  state.rebound = null;
   const receiverKey = options.receiverKey || getNearestReceiverKey(nextPossession, { x: ballX, y: ballY });
   const spots = getStartSpots(nextPossession);
   if (options.receiverSpot) spots[receiverKey] = options.receiverSpot;
@@ -922,80 +931,238 @@ function updatePossessionTransition(step) {
   return true;
 }
 
-function beginSideInbound(owner, foulSpot) {
+function beginFreeThrows(owner, shooter) {
   clearPlayerScreen();
-  const team = owner === "player" ? getPlayerTeam() : getCpuTeam();
-  const inbounder = nearestOf(foulSpot, team);
-  const inbounderKey = owner === "player" ? getPlayerKey(inbounder) : getCpuKey(inbounder);
-  const side = foulSpot.y < court.h / 2 ? "top" : "bottom";
-  const inboundSpot = {
-    x: clamp(foulSpot.x, 122, court.w - 122),
-    y: side === "top" ? 72 : court.h - 72,
-  };
-  const direction = getAttackHoop(owner) === court.rightHoop ? 1 : -1;
-  const teammates = team.filter((member) => member !== inbounder);
-  const receiver = teammates
-    .map((member) => ({ member, score: distance(member, { x: inboundSpot.x + direction * 110, y: side === "top" ? 146 : court.h - 146 }) }))
-    .sort((a, b) => a.score - b.score)[0]?.member || inbounder;
-  const receiverKey = owner === "player" ? getPlayerKey(receiver) : getCpuKey(receiver);
-  const receiverSpot = {
-    x: clamp(inboundSpot.x + direction * 110, 112, court.w - 112),
-    y: side === "top" ? 146 : court.h - 146,
-  };
+  const shooterKey = owner === "player" ? getPlayerKey(shooter) : getCpuKey(shooter);
+  const hoop = getAttackHoop(owner);
+  const direction = hoop === court.rightHoop ? -1 : 1;
+  const shooterSpot = { x: hoop.x + direction * 188, y: hoop.y };
+  const laneSlots = [
+    { x: hoop.x + direction * 118, y: hoop.y - 74 },
+    { x: hoop.x + direction * 118, y: hoop.y + 74 },
+    { x: hoop.x + direction * 202, y: hoop.y - 74 },
+    { x: hoop.x + direction * 202, y: hoop.y + 74 },
+    { x: hoop.x + direction * 278, y: hoop.y - 118 },
+    { x: hoop.x + direction * 278, y: hoop.y + 118 },
+    { x: hoop.x + direction * 306, y: hoop.y },
+    { x: hoop.x + direction * 338, y: hoop.y - 184 },
+    { x: hoop.x + direction * 338, y: hoop.y + 184 },
+  ];
+  const targets = {};
+  const keyFor = (member) => (isPlayerTeam(member) ? getPlayerKey(member) : getCpuKey(member));
+  targets[shooterKey] = shooterSpot;
+  getActiveCharacters().filter((member) => member !== shooter).forEach((member, index) => {
+    targets[keyFor(member)] = laneSlots[index % laneSlots.length];
+  });
 
   state.possession = owner;
   state.manualDefense = false;
   state.possessionTransition = null;
   state.passBall = null;
   state.ball = null;
-  state.recoveryBall = { x: foulSpot.x, y: foulSpot.y };
-  state.shotClock = Math.max(state.shotClock, 14);
+  state.rebound = null;
+  state.recoveryBall = null;
   state.shotCharge = 0;
-  state.timingStartContest = 0;
   state.dunkFx = null;
   clearTimingAction();
-  state.inbound = {
+  state.freeThrow = {
     owner,
-    inbounderKey,
-    receiverKey,
-    inboundSpot,
-    receiverSpot,
+    shooterKey,
+    hoop,
+    targets,
+    attempt: 0,
+    phase: "setup",
     elapsed: 0,
-    maxDuration: 1.35,
   };
-  showMessage(owner === "player" ? "CPU foul - Side in" : "Foul - Side in");
+  showMessage(owner === "player" ? "Free throws" : "CPU free throws");
 }
 
-function updateSideInbound(step) {
-  const inbound = state.inbound;
-  if (!inbound) return false;
-  inbound.elapsed += step;
-  const inbounder = getCharacterByKey(inbound.inbounderKey);
-  const receiver = getCharacterByKey(inbound.receiverKey);
-  const inbounderReady = moveCharacterToward(inbounder, inbound.inboundSpot, step, false, 4);
-  const receiverReady = receiver === inbounder || moveCharacterToward(receiver, inbound.receiverSpot, step, false, 5);
-  state.recoveryBall = { x: inbounder.x + 16, y: inbounder.y - 14 };
-  resolveCharacterCollisions();
+function updateFreeThrows(step) {
+  const freeThrow = state.freeThrow;
+  if (!freeThrow) return false;
+  freeThrow.elapsed += step;
 
-  if ((!inbounderReady || !receiverReady) && inbound.elapsed < inbound.maxDuration) return true;
-  setCharacterPosition(inbounder, inbound.inboundSpot);
-  if (receiver !== inbounder) setCharacterPosition(receiver, inbound.receiverSpot);
-  state.inbound = null;
-  state.recoveryBall = null;
-
-  if (receiver === inbounder) {
-    if (inbound.owner === "player") state.playerHandler = inbound.receiverKey;
-    else state.cpuHandler = inbound.receiverKey;
-    showMessage("Play on");
+  if (freeThrow.phase === "setup") {
+    const ready = getActiveCharacters().every((member) => {
+      const key = isPlayerTeam(member) ? getPlayerKey(member) : getCpuKey(member);
+      return moveCharacterToward(member, freeThrow.targets[key], step, false, 4);
+    });
+    resolveCharacterCollisions();
+    if (ready || freeThrow.elapsed >= 1.35) {
+      Object.entries(freeThrow.targets).forEach(([key, spot]) => setCharacterPosition(getCharacterByKey(key), spot));
+      freeThrow.phase = "ready";
+      freeThrow.elapsed = 0;
+      showMessage(`Free throw ${freeThrow.attempt + 1}/2`);
+    }
     return true;
   }
 
-  startPass(inbound.owner, inbounder, receiver, inbound.receiverKey, {
-    duration: 0.32,
-    allowInterceptions: false,
-    message: "Side in",
-  });
+  if (freeThrow.phase === "between") {
+    if (freeThrow.elapsed >= 0.6) {
+      freeThrow.phase = "ready";
+      freeThrow.elapsed = 0;
+      showMessage("Free throw 2/2");
+    }
+    return true;
+  }
+
+  if (freeThrow.phase === "shooting") {
+    updateBall(step);
+    return true;
+  }
+
+  if (freeThrow.owner === "cpu" && freeThrow.elapsed >= 0.72) {
+    const made = Math.random() < 0.76;
+    launchFreeThrow("cpu", made);
+  }
   return true;
+}
+
+function startFreeThrow(pointer) {
+  const freeThrow = state.freeThrow;
+  if (!freeThrow || freeThrow.owner !== "player" || freeThrow.phase !== "ready") return;
+  input.shootingId = pointer.pointerId;
+  state.timingActive = true;
+  state.timingAction = "freeThrow";
+  state.timingValue = 0;
+  state.timingDir = 1;
+  state.timingHold = 0;
+  state.timingZone = { start: 0.39, end: 0.61, center: 0.5, size: 0.22 };
+  state.slowUntil = state.time + 900;
+  meter.classList.add("show");
+}
+
+function resolveFreeThrowTiming() {
+  const freeThrow = state.freeThrow;
+  if (!freeThrow || freeThrow.owner !== "player") return;
+  const error = Math.abs(state.timingValue - 0.5);
+  const inside = state.timingValue >= state.timingZone.start && state.timingValue <= state.timingZone.end;
+  const makeChance = inside ? 0.92 : clamp(0.14 + (1 - error) * 0.62, 0.14, 0.76);
+  clearTimingAction();
+  launchFreeThrow("player", Math.random() < makeChance);
+}
+
+function launchFreeThrow(owner, made) {
+  const freeThrow = state.freeThrow;
+  if (!freeThrow || freeThrow.owner !== owner) return;
+  const shooter = getCharacterByKey(freeThrow.shooterKey);
+  const hoop = freeThrow.hoop;
+  freeThrow.phase = "shooting";
+  freeThrow.elapsed = 0;
+  state.ball = {
+    owner,
+    startX: shooter.x,
+    startY: shooter.y - 12,
+    x: shooter.x,
+    y: shooter.y - 12,
+    targetX: hoop.x,
+    targetY: hoop.y,
+    t: 0,
+    duration: 0.62,
+    made,
+    quality: made ? 0.9 : 0.28,
+    points: 1,
+    freeThrow: true,
+    scored: false,
+  };
+}
+
+function finishFreeThrowAttempt(ball) {
+  const freeThrow = state.freeThrow;
+  if (!freeThrow) return;
+  const hoop = freeThrow.hoop;
+  if (ball.made) {
+    addScore(ball.owner, 1);
+    addBurst(hoop.x, hoop.y, "#99d6c2", 18);
+    showMessage("Free throw made");
+  } else {
+    addBurst(hoop.x, hoop.y, "#d9572f", 12);
+    showMessage("Free throw missed");
+  }
+  state.ball = null;
+
+  if (freeThrow.attempt === 0) {
+    freeThrow.attempt = 1;
+    freeThrow.phase = "between";
+    freeThrow.elapsed = 0;
+    return;
+  }
+
+  state.freeThrow = null;
+  const pickup = getReboundPickupSpot(hoop);
+  if (ball.made) {
+    beginPossessionTransition(ball.owner === "player" ? "cpu" : "player", pickup.x, pickup.y, { receiverSpot: pickup });
+  } else {
+    beginRebound(ball.owner, pickup, true);
+  }
+}
+
+function beginRebound(shootingOwner, pickup, deadBall = false) {
+  const candidates = getActiveCharacters()
+    .map((member) => {
+      const owner = isPlayerTeam(member) ? "player" : "cpu";
+      return {
+        member,
+        owner,
+        key: owner === "player" ? getPlayerKey(member) : getCpuKey(member),
+        distance: distance(member, pickup),
+      };
+    })
+    .sort((a, b) => {
+      const distanceGap = a.distance - b.distance;
+      if (Math.abs(distanceGap) > 2) return distanceGap;
+      return a.owner === shootingOwner ? 1 : -1;
+    });
+  const winner = candidates[0];
+  if (!winner) return;
+  state.ball = null;
+  state.recoveryBall = { x: pickup.x, y: pickup.y };
+  state.rebound = {
+    shootingOwner,
+    owner: winner.owner,
+    winnerKey: winner.key,
+    pickup,
+    elapsed: 0,
+    maxDuration: deadBall ? 1.1 : 0.9,
+    deadBall,
+  };
+}
+
+function updateRebound(step) {
+  const rebound = state.rebound;
+  if (!rebound) return false;
+  rebound.elapsed += step;
+  const winner = getCharacterByKey(rebound.winnerKey);
+  const arrived = moveCharacterToward(winner, rebound.pickup, step, false, 5);
+  state.recoveryBall = { x: rebound.pickup.x, y: rebound.pickup.y };
+  resolveCharacterCollisions();
+  if (!arrived && rebound.elapsed < rebound.maxDuration) return true;
+
+  setCharacterPosition(winner, rebound.pickup);
+  state.rebound = null;
+  state.recoveryBall = null;
+  state.possession = rebound.owner;
+  state.manualDefense = false;
+  if (rebound.owner === "player") state.playerHandler = rebound.winnerKey;
+  else state.cpuHandler = rebound.winnerKey;
+  state.cpuShotTimer = rebound.owner === "cpu" ? 0.56 : 0;
+  state.cpuMoveTimer = 0;
+  state.cpuMoveStyle = "probe";
+  state.cpuBurst = 1;
+  state.cpuPassCooldown = 0.45;
+  state.shotClock = rebound.owner === rebound.shootingOwner ? 14 : 24;
+  showMessage(rebound.owner === rebound.shootingOwner ? "Offensive rebound" : "Rebound");
+  return true;
+}
+
+function addScore(owner, points) {
+  if (owner === "player") {
+    state.playerScore += points;
+    playerScoreEl.textContent = state.playerScore;
+  } else {
+    state.cpuScore += points;
+    cpuScoreEl.textContent = state.cpuScore;
+  }
 }
 
 function moveTransitionCharacters(targets, step, receiverKey) {
@@ -1082,7 +1249,11 @@ function addBurst(x, y, color, count = 16) {
 
 function startShot(pointer) {
   if (!state.started) return;
-  if (state.possessionTransition || state.inbound) return;
+  if (state.freeThrow) {
+    startFreeThrow(pointer);
+    return;
+  }
+  if (state.possessionTransition || state.rebound) return;
   if (state.possession === "cpu") {
     startSteal(pointer);
     return;
@@ -1164,6 +1335,10 @@ function releaseShot(pointer) {
     resolveStealTiming();
     return;
   }
+  if (state.timingAction === "freeThrow") {
+    resolveFreeThrowTiming();
+    return;
+  }
   if (state.mode === "timing") {
     shootTiming();
   } else {
@@ -1234,8 +1409,7 @@ function commitStealFoul(offense, defender, handler) {
     defender.stealRecoveryUntil = state.time + 1050;
     defender.stealCooldownUntil = state.time + 1750;
   }
-  const foulSpot = handler ? { x: handler.x, y: handler.y } : { x: court.w / 2, y: court.h / 2 };
-  beginSideInbound(offense, foulSpot);
+  beginFreeThrows(offense, handler || (offense === "player" ? getPlayerHandler() : getCpuHandler()));
 }
 
 function clearTimingAction() {
@@ -1402,7 +1576,7 @@ function passPlayerBall() {
 }
 
 function getCurrentPlayerPassTarget() {
-  if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.inbound || state.timingActive || input.shootingId) return null;
+  if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.freeThrow || state.rebound || state.timingActive || input.shootingId) return null;
   return getDirectionalPassTarget(getPlayerHandler(), getPlayerTeam());
 }
 
@@ -1418,7 +1592,7 @@ function cyclePlayerDefender() {
 }
 
 function callPlayerScreen() {
-  if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.inbound || state.timingActive || state.screenCooldown > 0) return;
+  if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.freeThrow || state.rebound || state.timingActive || state.screenCooldown > 0) return;
   const handler = getPlayerHandler();
   const defender = getNearestCpuDefender(handler);
   const inputDir = getInputMoveVector();
@@ -1648,7 +1822,8 @@ function commitLiveTurnover(possession, interceptor, message) {
   state.possessionTransition = null;
   state.recoveryBall = null;
   state.passBall = null;
-  state.inbound = null;
+  state.freeThrow = null;
+  state.rebound = null;
   state.ball = null;
   state.playerHandler = possession === "player" ? getPlayerKey(interceptor) : "player";
   state.cpuHandler = possession === "cpu" ? getCpuKey(interceptor) : "defender";
@@ -1793,13 +1968,19 @@ function update(dt) {
   const controlled = state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
   state.manualDefense = state.possession === "cpu" && moving > 0.12;
 
-  if (updateSideInbound(step)) {
+  if (updateFreeThrows(step)) {
     updateParticles(step);
     updateHud();
     return;
   }
 
   if (updateGameClock(step)) {
+    updateParticles(step);
+    updateHud();
+    return;
+  }
+
+  if (updateRebound(step)) {
     updateParticles(step);
     updateHud();
     return;
@@ -1893,7 +2074,8 @@ function finishGame() {
   state.passBall = null;
   state.possessionTransition = null;
   state.recoveryBall = null;
-  state.inbound = null;
+  state.freeThrow = null;
+  state.rebound = null;
   state.timingActive = false;
   input.shootingId = null;
   meter.classList.remove("show");
@@ -2629,7 +2811,8 @@ function updateStealTimingZone() {
 function getStealTimingZoneForDistance(stealDistance, timingHold = 0) {
   const closeFit = getStealContactFit(stealDistance) ** 2;
   const patiencePressure = clamp(timingHold / 1.6, 0, 1);
-  const size = clamp(0.014 + closeFit * 0.076 - patiencePressure * 0.016, 0.01, 0.09);
+  const assist = 0.65 + settings.stealSuccess * 0.7;
+  const size = clamp(0.018 + closeFit * 0.085 * assist - patiencePressure * 0.016, 0.014, 0.13);
   const start = 0.5 - size / 2;
   return { start, end: start + size, center: 0.5, size };
 }
@@ -2640,7 +2823,7 @@ function getStealContactFit(stealDistance) {
 
 function getStealSuccessChance(stealDistance) {
   const contactFit = getStealContactFit(stealDistance);
-  return clamp(0.02 + contactFit ** 4 * 0.9, 0.02, 0.92);
+  return clamp(0.02 + settings.stealSuccess * 0.05 + contactFit ** 4 * (0.7 + settings.stealSuccess * 0.35), 0.02, 0.97);
 }
 
 function getStealFoulChance(timingValue, zone, stealDistance) {
@@ -2658,7 +2841,15 @@ function getStealAttemptOutcome(timingValue, zone, stealDistance) {
 
 function updateActiveTimingZone() {
   if (state.timingAction === "steal") updateStealTimingZone();
+  else if (state.timingAction === "freeThrow") updateFreeThrowTimingZone();
   else updateTimingZone();
+}
+
+function updateFreeThrowTimingZone() {
+  const meterH = Math.max(1, meter.clientHeight);
+  state.timingZone = { start: 0.39, end: 0.61, center: 0.5, size: 0.22 };
+  sweet.style.top = `${state.timingZone.start * meterH}px`;
+  sweet.style.height = `${state.timingZone.size * meterH}px`;
 }
 
 function getContestPressure() {
@@ -2670,6 +2861,7 @@ function syncSettings() {
   settings.defense = Number(defenseSlider.value) / 100;
   settings.distance = Number(distanceSlider.value) / 100;
   settings.meterSpeed = Number(meterSpeedSlider.value) / 100;
+  settings.stealSuccess = Number(stealSuccessSlider.value) / 100;
   settings.characterSize = Number(characterSizeSlider.value) / 100;
   settings.moveSpeed = Number(moveSpeedSlider.value) / 100;
   settings.cameraZoom = Number(cameraZoomSlider.value) / 100;
@@ -2678,6 +2870,7 @@ function syncSettings() {
   defenseValue.textContent = `${defenseSlider.value}%`;
   distanceValue.textContent = `${distanceSlider.value}%`;
   meterSpeedValue.textContent = `${meterSpeedSlider.value}%`;
+  stealSuccessValue.textContent = `${stealSuccessSlider.value}%`;
   characterSizeValue.textContent = `${characterSizeSlider.value}%`;
   moveSpeedValue.textContent = `${moveSpeedSlider.value}%`;
   cameraZoomValue.textContent = `${cameraZoomSlider.value}%`;
@@ -2722,7 +2915,8 @@ function returnToTitle() {
   state.possessionTransition = null;
   state.recoveryBall = null;
   state.passBall = null;
-  state.inbound = null;
+  state.freeThrow = null;
+  state.rebound = null;
   state.dunkFx = null;
   state.timingActive = false;
   state.timingHold = 0;
@@ -2772,14 +2966,12 @@ function updateBall(dt) {
   if (t >= 1 && !b.scored) {
     b.scored = true;
     const hoop = getAttackHoop(b.owner);
+    if (b.freeThrow) {
+      finishFreeThrowAttempt(b);
+      return;
+    }
     if (b.made) {
-      if (b.owner === "player") {
-        state.playerScore += b.points;
-        playerScoreEl.textContent = state.playerScore;
-      } else {
-        state.cpuScore += b.points;
-        cpuScoreEl.textContent = state.cpuScore;
-      }
+      addScore(b.owner, b.points);
       state.shake = 8;
       addBurst(hoop.x, hoop.y, "#99d6c2", 26);
       showMessage(getScoreMessage(b));
@@ -2792,9 +2984,7 @@ function updateBall(dt) {
       addBurst(b.targetX, b.targetY, "#d9572f", 12);
       showMessage(b.owner === "player" ? (b.quality > 0.58 ? "Rim out" : "Off balance") : "Stop");
       const pickup = getReboundPickupSpot(hoop);
-      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y, {
-        receiverSpot: pickup,
-      });
+      beginRebound(b.owner, pickup);
     }
   }
 }
@@ -2837,6 +3027,16 @@ function updateHud() {
   if (state.gameOver) {
     spaceReadout.textContent = state.playerScore === state.cpuScore ? "Draw" : state.playerScore > state.cpuScore ? "You win" : "CPU wins";
     shotReadout.textContent = "Game over";
+    return;
+  }
+  if (state.freeThrow) {
+    shotReadout.textContent = `FT ${state.freeThrow.attempt + 1}/2`;
+    spaceReadout.textContent = state.freeThrow.owner === "player" ? "Set" : "CPU at line";
+    return;
+  }
+  if (state.rebound) {
+    shotReadout.textContent = "Rebound";
+    spaceReadout.textContent = "Loose ball";
     return;
   }
   const focus = state.possession === "player" ? getPlayerHandler() : getCpuHandler();
@@ -3034,7 +3234,7 @@ function drawPlayerShadow(p) {
 function drawCharacter(p, isPlayer) {
   const target = getCharacterFacingTarget(p, isPlayer);
   const angle = Math.atan2(target.y - p.y, target.x - p.x);
-  const isBallCarrier = !state.possessionTransition && !state.inbound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
+  const isBallCarrier = !state.possessionTransition && !state.freeThrow && !state.rebound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
   const sprite = isPlayer
     ? (isBallCarrier ? assets.playerBall : assets.playerDefense)
     : assets.cpu;
@@ -3071,7 +3271,7 @@ function drawCharacter(p, isPlayer) {
   ctx.fill();
   ctx.restore();
 
-  const hasLiveBall = !state.possessionTransition && !state.inbound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
+  const hasLiveBall = !state.possessionTransition && !state.freeThrow && !state.rebound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
   if (hasLiveBall) {
     drawCarriedBall(p);
   }
@@ -3356,6 +3556,7 @@ settingsPanel.addEventListener("click", (event) => {
 defenseSlider.addEventListener("input", syncSettings);
 distanceSlider.addEventListener("input", syncSettings);
 meterSpeedSlider.addEventListener("input", syncSettings);
+stealSuccessSlider.addEventListener("input", syncSettings);
 characterSizeSlider.addEventListener("input", syncSettings);
 moveSpeedSlider.addEventListener("input", syncSettings);
 cameraZoomSlider.addEventListener("input", syncSettings);
