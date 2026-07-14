@@ -304,7 +304,11 @@ globalThis.testResult.freeThrowSetup = {
   laneTargets: freeThrowLaneTargets,
   hoopY: state.freeThrow.hoop.y,
 };
-clearTimingAction();
+state.timingValue = 0;
+resolveFreeThrowTiming();
+globalThis.testResult.freeThrowOutsideZone = { made: state.ball?.made };
+state.ball = null;
+state.freeThrow.phase = "ready";
 launchFreeThrow("player", true);
 updateFreeThrows(1);
 updateFreeThrows(1);
@@ -411,6 +415,7 @@ assert.equal(result.cpuFoul.freeThrow, true);
 assert.equal(result.cpuFoul.owner, "player");
 assert.equal(result.freeThrowSetup.meterMoved, true);
 assert.ok(result.freeThrowSetup.laneTargets.every((spot) => Math.abs(Math.abs(spot.y - result.freeThrowSetup.hoopY) - 104) < 0.001));
+assert.equal(result.freeThrowOutsideZone.made, false);
 assert.equal(result.freeThrowRebound.freeThrow, null);
 assert.equal(result.freeThrowRebound.possession, result.freeThrowRebound.winner);
 assert.ok([14, 24].includes(result.freeThrowRebound.shotClock));

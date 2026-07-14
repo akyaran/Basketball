@@ -52,7 +52,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.2";
+const APP_VERSION = "0.10.3";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -1061,11 +1061,9 @@ function startFreeThrow(pointer) {
 function resolveFreeThrowTiming() {
   const freeThrow = state.freeThrow;
   if (!freeThrow || freeThrow.owner !== "player") return;
-  const error = Math.abs(state.timingValue - 0.5);
   const inside = state.timingValue >= state.timingZone.start && state.timingValue <= state.timingZone.end;
-  const makeChance = inside ? 0.92 : clamp(0.14 + (1 - error) * 0.62, 0.14, 0.76);
   clearTimingAction();
-  launchFreeThrow("player", Math.random() < makeChance);
+  launchFreeThrow("player", inside);
 }
 
 function launchFreeThrow(owner, made) {
