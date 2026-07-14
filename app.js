@@ -52,7 +52,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.1";
+const APP_VERSION = "0.10.2";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -937,16 +937,17 @@ function beginFreeThrows(owner, shooter) {
   const hoop = getAttackHoop(owner);
   const direction = hoop === court.rightHoop ? -1 : 1;
   const shooterSpot = { x: hoop.x + direction * 188, y: hoop.y };
+  // Six rebounders occupy the painted lane's upper and lower lines.
   const laneSlots = [
-    { x: hoop.x + direction * 118, y: hoop.y - 74 },
-    { x: hoop.x + direction * 118, y: hoop.y + 74 },
-    { x: hoop.x + direction * 202, y: hoop.y - 74 },
-    { x: hoop.x + direction * 202, y: hoop.y + 74 },
-    { x: hoop.x + direction * 278, y: hoop.y - 118 },
-    { x: hoop.x + direction * 278, y: hoop.y + 118 },
-    { x: hoop.x + direction * 306, y: hoop.y },
-    { x: hoop.x + direction * 338, y: hoop.y - 184 },
-    { x: hoop.x + direction * 338, y: hoop.y + 184 },
+    { x: hoop.x + direction * 82, y: hoop.y - 104 },
+    { x: hoop.x + direction * 82, y: hoop.y + 104 },
+    { x: hoop.x + direction * 154, y: hoop.y - 104 },
+    { x: hoop.x + direction * 154, y: hoop.y + 104 },
+    { x: hoop.x + direction * 226, y: hoop.y - 104 },
+    { x: hoop.x + direction * 226, y: hoop.y + 104 },
+    { x: hoop.x + direction * 294, y: hoop.y },
+    { x: hoop.x + direction * 326, y: hoop.y - 154 },
+    { x: hoop.x + direction * 326, y: hoop.y + 154 },
   ];
   const targets = {};
   const keyFor = (member) => (isPlayerTeam(member) ? getPlayerKey(member) : getCpuKey(member));
@@ -977,9 +978,15 @@ function beginFreeThrows(owner, shooter) {
   showMessage(owner === "player" ? "Free throws" : "CPU free throws");
 }
 
-function updateFreeThrows(step) {
+function updateFreeThrows(dt, step = dt) {
   const freeThrow = state.freeThrow;
   if (!freeThrow) return false;
+
+  // Free throws pause field play, but their timing meter must keep running.
+  if (state.timingActive) {
+    advanceTimingMeter(dt, step);
+    return true;
+  }
   freeThrow.elapsed += step;
 
   if (freeThrow.phase === "setup") {
@@ -1016,6 +1023,25 @@ function updateFreeThrows(step) {
     launchFreeThrow("cpu", made);
   }
   return true;
+}
+
+function advanceTimingMeter(dt, step) {
+  if (!state.timingActive) return;
+  state.timingHold += dt;
+  state.timingValue += state.timingDir * step * (1.4 + settings.meterSpeed * 3.9);
+  if (state.timingValue > 1) {
+    state.timingValue = 1;
+    state.timingDir = -1;
+  } else if (state.timingValue < 0) {
+    state.timingValue = 0;
+    state.timingDir = 1;
+  }
+  needle.style.top = `${state.timingValue * (meter.clientHeight - 5)}px`;
+  updateActiveTimingZone();
+  if (state.timingAction === "steal" && state.stealAttempt?.invalid) {
+    failStealAttempt();
+  }
+  state.shotCharge = state.timingValue;
 }
 
 function startFreeThrow(pointer) {
@@ -1968,7 +1994,7 @@ function update(dt) {
   const controlled = state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
   state.manualDefense = state.possession === "cpu" && moving > 0.12;
 
-  if (updateFreeThrows(step)) {
+  if (updateFreeThrows(dt, step)) {
     updateParticles(step);
     updateHud();
     return;
@@ -2027,23 +2053,7 @@ function update(dt) {
   }
   resolveCharacterCollisions();
 
-  if (state.timingActive) {
-    state.timingHold += dt;
-    state.timingValue += state.timingDir * step * (1.4 + settings.meterSpeed * 3.9);
-    if (state.timingValue > 1) {
-      state.timingValue = 1;
-      state.timingDir = -1;
-    } else if (state.timingValue < 0) {
-      state.timingValue = 0;
-      state.timingDir = 1;
-    }
-    needle.style.top = `${state.timingValue * (meter.clientHeight - 5)}px`;
-    updateActiveTimingZone();
-    if (state.timingAction === "steal" && state.stealAttempt?.invalid) {
-      failStealAttempt();
-    }
-    state.shotCharge = state.timingValue;
-  }
+  advanceTimingMeter(dt, step);
 
   updateBall(step);
   updateParticles(step);

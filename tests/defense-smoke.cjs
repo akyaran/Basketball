@@ -292,6 +292,19 @@ const cpuFouled = updateCpuStealAttempt(1, player);
 Math.random = originalRandom;
 globalThis.testResult.cpuFoul = { cpuFouled, possession: state.possession, freeThrow: Boolean(state.freeThrow), owner: state.freeThrow?.owner };
 updateFreeThrows(2);
+const freeThrowShooterKey = state.freeThrow.shooterKey;
+const freeThrowLaneTargets = Object.entries(state.freeThrow.targets)
+  .filter(([key]) => key !== freeThrowShooterKey)
+  .map(([, spot]) => spot);
+startFreeThrow({ pointerId: "free-throw-meter" });
+const freeThrowMeterStart = state.timingValue;
+updateFreeThrows(0.12);
+globalThis.testResult.freeThrowSetup = {
+  meterMoved: state.timingActive && state.timingValue > freeThrowMeterStart,
+  laneTargets: freeThrowLaneTargets,
+  hoopY: state.freeThrow.hoop.y,
+};
+clearTimingAction();
 launchFreeThrow("player", true);
 updateFreeThrows(1);
 updateFreeThrows(1);
@@ -396,6 +409,8 @@ assert.equal(result.cpuFoul.cpuFouled, true);
 assert.equal(result.cpuFoul.possession, "player");
 assert.equal(result.cpuFoul.freeThrow, true);
 assert.equal(result.cpuFoul.owner, "player");
+assert.equal(result.freeThrowSetup.meterMoved, true);
+assert.ok(result.freeThrowSetup.laneTargets.every((spot) => Math.abs(Math.abs(spot.y - result.freeThrowSetup.hoopY) - 104) < 0.001));
 assert.equal(result.freeThrowRebound.freeThrow, null);
 assert.equal(result.freeThrowRebound.possession, result.freeThrowRebound.winner);
 assert.ok([14, 24].includes(result.freeThrowRebound.shotClock));
