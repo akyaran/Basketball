@@ -50,7 +50,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.9.9";
+const APP_VERSION = "0.10.0";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -119,6 +119,7 @@ const state = {
   manualDefense: false,
   cpuHandler: "defender",
   passBall: null,
+  inbound: null,
   dunkFx: null,
   possessionTransition: null,
   recoveryBall: null,
@@ -776,6 +777,7 @@ function setPossession(possession) {
   state.possessionTransition = null;
   state.recoveryBall = null;
   state.passBall = null;
+  state.inbound = null;
   state.playerHandler = "player";
   state.manualDefense = false;
   state.cpuHandler = "defender";
@@ -856,6 +858,7 @@ function setCharacterPosition(p, spot) {
 
 function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   clearPlayerScreen();
+  state.inbound = null;
   const receiverKey = options.receiverKey || getNearestReceiverKey(nextPossession, { x: ballX, y: ballY });
   const spots = getStartSpots(nextPossession);
   if (options.receiverSpot) spots[receiverKey] = options.receiverSpot;
@@ -916,6 +919,82 @@ function updatePossessionTransition(step) {
     showMessage(transition.nextPossession === "player" ? "Your ball" : "CPU ball");
   }
 
+  return true;
+}
+
+function beginSideInbound(owner, foulSpot) {
+  clearPlayerScreen();
+  const team = owner === "player" ? getPlayerTeam() : getCpuTeam();
+  const inbounder = nearestOf(foulSpot, team);
+  const inbounderKey = owner === "player" ? getPlayerKey(inbounder) : getCpuKey(inbounder);
+  const side = foulSpot.y < court.h / 2 ? "top" : "bottom";
+  const inboundSpot = {
+    x: clamp(foulSpot.x, 122, court.w - 122),
+    y: side === "top" ? 72 : court.h - 72,
+  };
+  const direction = getAttackHoop(owner) === court.rightHoop ? 1 : -1;
+  const teammates = team.filter((member) => member !== inbounder);
+  const receiver = teammates
+    .map((member) => ({ member, score: distance(member, { x: inboundSpot.x + direction * 110, y: side === "top" ? 146 : court.h - 146 }) }))
+    .sort((a, b) => a.score - b.score)[0]?.member || inbounder;
+  const receiverKey = owner === "player" ? getPlayerKey(receiver) : getCpuKey(receiver);
+  const receiverSpot = {
+    x: clamp(inboundSpot.x + direction * 110, 112, court.w - 112),
+    y: side === "top" ? 146 : court.h - 146,
+  };
+
+  state.possession = owner;
+  state.manualDefense = false;
+  state.possessionTransition = null;
+  state.passBall = null;
+  state.ball = null;
+  state.recoveryBall = { x: foulSpot.x, y: foulSpot.y };
+  state.shotClock = Math.max(state.shotClock, 14);
+  state.shotCharge = 0;
+  state.timingStartContest = 0;
+  state.dunkFx = null;
+  clearTimingAction();
+  state.inbound = {
+    owner,
+    inbounderKey,
+    receiverKey,
+    inboundSpot,
+    receiverSpot,
+    elapsed: 0,
+    maxDuration: 1.35,
+  };
+  showMessage(owner === "player" ? "CPU foul - Side in" : "Foul - Side in");
+}
+
+function updateSideInbound(step) {
+  const inbound = state.inbound;
+  if (!inbound) return false;
+  inbound.elapsed += step;
+  const inbounder = getCharacterByKey(inbound.inbounderKey);
+  const receiver = getCharacterByKey(inbound.receiverKey);
+  const inbounderReady = moveCharacterToward(inbounder, inbound.inboundSpot, step, false, 4);
+  const receiverReady = receiver === inbounder || moveCharacterToward(receiver, inbound.receiverSpot, step, false, 5);
+  state.recoveryBall = { x: inbounder.x + 16, y: inbounder.y - 14 };
+  resolveCharacterCollisions();
+
+  if ((!inbounderReady || !receiverReady) && inbound.elapsed < inbound.maxDuration) return true;
+  setCharacterPosition(inbounder, inbound.inboundSpot);
+  if (receiver !== inbounder) setCharacterPosition(receiver, inbound.receiverSpot);
+  state.inbound = null;
+  state.recoveryBall = null;
+
+  if (receiver === inbounder) {
+    if (inbound.owner === "player") state.playerHandler = inbound.receiverKey;
+    else state.cpuHandler = inbound.receiverKey;
+    showMessage("Play on");
+    return true;
+  }
+
+  startPass(inbound.owner, inbounder, receiver, inbound.receiverKey, {
+    duration: 0.32,
+    allowInterceptions: false,
+    message: "Side in",
+  });
   return true;
 }
 
@@ -1003,7 +1082,7 @@ function addBurst(x, y, color, count = 16) {
 
 function startShot(pointer) {
   if (!state.started) return;
-  if (state.possessionTransition) return;
+  if (state.possessionTransition || state.inbound) return;
   if (state.possession === "cpu") {
     startSteal(pointer);
     return;
@@ -1127,12 +1206,15 @@ function resolveStealTiming() {
   const defender = attempt ? getCharacterByKey(attempt.defenderKey) : null;
   const handler = attempt ? getCharacterByKey(attempt.handlerKey) : null;
   const zone = state.timingZone;
-  const inside = state.timingValue >= zone.start && state.timingValue <= zone.end;
   const liveDistance = defender && handler ? distance(defender, handler) : Infinity;
-  const successChance = getStealSuccessChance(liveDistance);
-  const successful = Boolean(attempt && defender && handler && state.possession === "cpu" && !state.ball && !state.passBall && !attempt.invalid && liveDistance <= STEAL_MAX_DISTANCE && inside && Math.random() < successChance);
-  if (successful) {
+  const validAttempt = Boolean(attempt && defender && handler && state.possession === "cpu" && !state.ball && !state.passBall && !attempt.invalid && liveDistance <= STEAL_MAX_DISTANCE);
+  const outcome = validAttempt ? getStealAttemptOutcome(state.timingValue, zone, liveDistance) : { success: false, foul: false };
+  if (outcome.success) {
     commitLiveTurnover("player", defender, "Steal");
+    return;
+  }
+  if (outcome.foul) {
+    commitStealFoul("cpu", defender, handler);
     return;
   }
   failStealAttempt(defender);
@@ -1145,6 +1227,15 @@ function failStealAttempt(defender = state.stealAttempt ? getCharacterByKey(stat
   }
   clearTimingAction();
   showMessage("Reach");
+}
+
+function commitStealFoul(offense, defender, handler) {
+  if (defender) {
+    defender.stealRecoveryUntil = state.time + 1050;
+    defender.stealCooldownUntil = state.time + 1750;
+  }
+  const foulSpot = handler ? { x: handler.x, y: handler.y } : { x: court.w / 2, y: court.h / 2 };
+  beginSideInbound(offense, foulSpot);
 }
 
 function clearTimingAction() {
@@ -1304,10 +1395,15 @@ function passPlayerBall() {
   }
   if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition) return;
   const from = getPlayerHandler();
-  const to = getDirectionalPassTarget(from, getPlayerTeam());
+  const to = getCurrentPlayerPassTarget();
   if (!to || to === from) return;
   const nextHandler = getPlayerKey(to);
   startPass("player", from, to, nextHandler);
+}
+
+function getCurrentPlayerPassTarget() {
+  if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.inbound || state.timingActive || input.shootingId) return null;
+  return getDirectionalPassTarget(getPlayerHandler(), getPlayerTeam());
 }
 
 function cyclePlayerDefender() {
@@ -1322,7 +1418,7 @@ function cyclePlayerDefender() {
 }
 
 function callPlayerScreen() {
-  if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.timingActive || state.screenCooldown > 0) return;
+  if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.inbound || state.timingActive || state.screenCooldown > 0) return;
   const handler = getPlayerHandler();
   const defender = getNearestCpuDefender(handler);
   const inputDir = getInputMoveVector();
@@ -1453,7 +1549,7 @@ function passCpuBallTo(to) {
   state.cpuPassCooldown = 0.58;
 }
 
-function startPass(owner, from, to, nextHandler) {
+function startPass(owner, from, to, nextHandler, options = {}) {
   if (owner === "cpu") cancelStealAttempt();
   const startX = from.x + 14;
   const startY = from.y - 12;
@@ -1469,10 +1565,10 @@ function startPass(owner, from, to, nextHandler) {
     x: startX,
     y: startY,
     t: 0,
-    duration: 0.24,
-    interceptions: getPassInterceptionAttempts(owner, { x: startX, y: startY }, { x: targetX, y: targetY }),
+    duration: options.duration || 0.24,
+    interceptions: options.allowInterceptions === false ? [] : getPassInterceptionAttempts(owner, { x: startX, y: startY }, { x: targetX, y: targetY }),
   };
-  showMessage(owner === "player" ? "Pass" : "CPU pass");
+  showMessage(options.message || (owner === "player" ? "Pass" : "CPU pass"));
 }
 
 function updatePassBall(step) {
@@ -1552,6 +1648,7 @@ function commitLiveTurnover(possession, interceptor, message) {
   state.possessionTransition = null;
   state.recoveryBall = null;
   state.passBall = null;
+  state.inbound = null;
   state.ball = null;
   state.playerHandler = possession === "player" ? getPlayerKey(interceptor) : "player";
   state.cpuHandler = possession === "cpu" ? getCpuKey(interceptor) : "defender";
@@ -1696,6 +1793,12 @@ function update(dt) {
   const controlled = state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
   state.manualDefense = state.possession === "cpu" && moving > 0.12;
 
+  if (updateSideInbound(step)) {
+    updateParticles(step);
+    updateHud();
+    return;
+  }
+
   if (updateGameClock(step)) {
     updateParticles(step);
     updateHud();
@@ -1790,6 +1893,7 @@ function finishGame() {
   state.passBall = null;
   state.possessionTransition = null;
   state.recoveryBall = null;
+  state.inbound = null;
   state.timingActive = false;
   input.shootingId = null;
   meter.classList.remove("show");
@@ -1830,9 +1934,16 @@ function updateCpuStealAttempt(step, handler) {
   if (Math.random() >= step * attemptRate) return false;
 
   defender.stealCooldownUntil = state.time + 1550;
-  const successChance = getStealSuccessChance(stealDistance) * 0.58;
-  if (Math.random() < successChance) {
+  const zone = getStealTimingZoneForDistance(stealDistance);
+  const timingValue = clamp(0.5 + (Math.random() + Math.random() - 1) * 0.32, 0, 1);
+  const outcome = getStealAttemptOutcome(timingValue, zone, stealDistance);
+  if (outcome.success) {
     commitLiveTurnover("cpu", defender, "CPU steal");
+    return true;
+  }
+
+  if (outcome.foul) {
+    commitStealFoul("player", defender, handler);
     return true;
   }
 
@@ -2509,13 +2620,18 @@ function updateStealTimingZone() {
   const handler = attempt ? getCharacterByKey(attempt.handlerKey) : null;
   const stealDistance = defender && handler ? distance(defender, handler) : Infinity;
   if (attempt) attempt.invalid = stealDistance > STEAL_MAX_DISTANCE || state.possession !== "cpu" || Boolean(state.ball || state.passBall);
-  const closeFit = getStealContactFit(stealDistance) ** 2;
-  const patiencePressure = clamp(state.timingHold / 1.6, 0, 1);
-  const size = clamp(0.014 + closeFit * 0.076 - patiencePressure * 0.016, 0.01, 0.09);
-  const start = 0.5 - size / 2;
-  state.timingZone = { start, end: start + size, center: 0.5, size };
+  state.timingZone = getStealTimingZoneForDistance(stealDistance, state.timingHold);
+  const { start, size } = state.timingZone;
   sweet.style.top = `${start * meterH}px`;
   sweet.style.height = `${size * meterH}px`;
+}
+
+function getStealTimingZoneForDistance(stealDistance, timingHold = 0) {
+  const closeFit = getStealContactFit(stealDistance) ** 2;
+  const patiencePressure = clamp(timingHold / 1.6, 0, 1);
+  const size = clamp(0.014 + closeFit * 0.076 - patiencePressure * 0.016, 0.01, 0.09);
+  const start = 0.5 - size / 2;
+  return { start, end: start + size, center: 0.5, size };
 }
 
 function getStealContactFit(stealDistance) {
@@ -2524,7 +2640,20 @@ function getStealContactFit(stealDistance) {
 
 function getStealSuccessChance(stealDistance) {
   const contactFit = getStealContactFit(stealDistance);
-  return clamp(0.015 + contactFit ** 5 * 0.82, 0.015, 0.835);
+  return clamp(0.02 + contactFit ** 4 * 0.9, 0.02, 0.92);
+}
+
+function getStealFoulChance(timingValue, zone, stealDistance) {
+  if (timingValue >= zone.start && timingValue <= zone.end) return 0;
+  const missDistance = timingValue < zone.start ? zone.start - timingValue : timingValue - zone.end;
+  const nearMiss = clamp(1 - missDistance / 0.22, 0, 1);
+  return clamp(0.03 + nearMiss ** 1.55 * (0.38 + getStealContactFit(stealDistance) * 0.22), 0.03, 0.63);
+}
+
+function getStealAttemptOutcome(timingValue, zone, stealDistance) {
+  const inside = timingValue >= zone.start && timingValue <= zone.end;
+  if (inside) return { success: Math.random() < getStealSuccessChance(stealDistance), foul: false };
+  return { success: false, foul: Math.random() < getStealFoulChance(timingValue, zone, stealDistance) };
 }
 
 function updateActiveTimingZone() {
@@ -2593,6 +2722,7 @@ function returnToTitle() {
   state.possessionTransition = null;
   state.recoveryBall = null;
   state.passBall = null;
+  state.inbound = null;
   state.dunkFx = null;
   state.timingActive = false;
   state.timingHold = 0;
@@ -2770,6 +2900,7 @@ function drawCourt() {
   drawControlMarker();
   for (const p of getCpuTeam()) drawCharacter(p, false);
   for (const p of getPlayerTeam()) drawCharacter(p, true);
+  drawPassTargetIndicator();
   drawAimPreview();
   drawBall();
   drawPassBall();
@@ -2903,7 +3034,7 @@ function drawPlayerShadow(p) {
 function drawCharacter(p, isPlayer) {
   const target = getCharacterFacingTarget(p, isPlayer);
   const angle = Math.atan2(target.y - p.y, target.x - p.x);
-  const isBallCarrier = !state.possessionTransition && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
+  const isBallCarrier = !state.possessionTransition && !state.inbound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
   const sprite = isPlayer
     ? (isBallCarrier ? assets.playerBall : assets.playerDefense)
     : assets.cpu;
@@ -2940,7 +3071,7 @@ function drawCharacter(p, isPlayer) {
   ctx.fill();
   ctx.restore();
 
-  const hasLiveBall = !state.possessionTransition && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
+  const hasLiveBall = !state.possessionTransition && !state.inbound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
   if (hasLiveBall) {
     drawCarriedBall(p);
   }
@@ -2998,6 +3129,32 @@ function drawAimPreview() {
   ctx.quadraticCurveTo((shooter.x + targetX) / 2, shooter.y - 150, targetX, targetY);
   ctx.stroke();
   ctx.setLineDash([]);
+}
+
+function drawPassTargetIndicator() {
+  const target = getCurrentPlayerPassTarget();
+  if (!target) return;
+  const from = getPlayerHandler();
+  const pulse = 0.66 + Math.sin(state.time / 150) * 0.18;
+  ctx.save();
+  ctx.strokeStyle = `rgba(153, 214, 194, ${pulse * 0.52})`;
+  ctx.lineWidth = 3;
+  ctx.setLineDash([9, 10]);
+  ctx.beginPath();
+  ctx.moveTo(from.x + 8, from.y - 12);
+  ctx.lineTo(target.x, target.y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = `rgba(247, 191, 69, ${pulse})`;
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.ellipse(target.x, target.y + target.r + 9, target.r * 1.42, target.r * 0.58, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = `rgba(247, 191, 69, ${pulse})`;
+  ctx.beginPath();
+  ctx.arc(target.x, target.y - target.r - 9, 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawBall() {
