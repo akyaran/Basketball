@@ -56,7 +56,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.7";
+const APP_VERSION = "0.10.8";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -756,8 +756,9 @@ function updateStamina(p, dashing, moving, step) {
 function getCharacterMoveSpeed(p, wantsDash, moving, step) {
   if (typeof p.stamina !== "number") p.stamina = 1;
   if (p.stamina <= 0.01) p.dashExhausted = true;
-  if (p.dashExhausted && (!wantsDash || !moving || p.stamina >= 0.42)) p.dashExhausted = false;
-  let dashing = Boolean(wantsDash && moving && !p.dashExhausted && p.stamina > 0.12);
+  // Empty means empty: keep jogging until the player releases the dash control.
+  if (p.dashExhausted && (!wantsDash || !moving)) p.dashExhausted = false;
+  let dashing = Boolean(wantsDash && moving && !p.dashExhausted && p.stamina > 0.001);
   updateStamina(p, dashing, moving, step);
   // The final sprint frame must not keep a full dash speed after the tank is empty.
   if (p.stamina <= 0.01) {
@@ -1037,7 +1038,7 @@ function beginFreeThrows(owner, shooter) {
   const shooterKey = owner === "player" ? getPlayerKey(shooter) : getCpuKey(shooter);
   const hoop = getAttackHoop(owner);
   const direction = hoop === court.rightHoop ? -1 : 1;
-  const shooterSpot = { x: hoop.x + direction * 188, y: hoop.y };
+  const shooterSpot = { x: hoop.x + direction * 232, y: hoop.y };
   const targets = {};
   const keyFor = (member) => (isPlayerTeam(member) ? getPlayerKey(member) : getCpuKey(member));
   targets[shooterKey] = shooterSpot;
@@ -1168,7 +1169,7 @@ function startFreeThrow(pointer) {
   state.timingValue = 0;
   state.timingDir = 1;
   state.timingHold = 0;
-  state.timingZone = { start: 0.39, end: 0.61, center: 0.5, size: 0.22 };
+  state.timingZone = { start: 0.445, end: 0.555, center: 0.5, size: 0.11 };
   state.slowUntil = state.time + 900;
   meter.classList.add("show");
 }
@@ -2284,9 +2285,18 @@ function updateShotClock(step) {
   state.shotClock = Math.max(0, state.shotClock - step);
   if (state.shotClock > 0) return false;
   const handler = state.possession === "player" ? getPlayerHandler() : getCpuHandler();
-  showMessage("24 seconds");
-  beginPossessionTransition(state.possession === "player" ? "cpu" : "player", handler.x, handler.y);
+  const nextPossession = state.possession === "player" ? "cpu" : "player";
+  const inboundSpot = getShotClockInboundSpot(handler);
+  showMessage("24 seconds - sideline");
+  beginPossessionTransition(nextPossession, inboundSpot.x, inboundSpot.y, { receiverSpot: inboundSpot });
   return true;
+}
+
+function getShotClockInboundSpot(handler) {
+  return {
+    x: court.w * 0.5,
+    y: handler.y < court.h * 0.5 ? court.lineInset + 36 : court.h - court.lineInset - 36,
+  };
 }
 
 function updateGameClock(step) {
@@ -3076,7 +3086,7 @@ function updateActiveTimingZone() {
 
 function updateFreeThrowTimingZone() {
   const meterH = Math.max(1, meter.clientHeight);
-  state.timingZone = { start: 0.39, end: 0.61, center: 0.5, size: 0.22 };
+  state.timingZone = { start: 0.445, end: 0.555, center: 0.5, size: 0.11 };
   sweet.style.top = `${state.timingZone.start * meterH}px`;
   sweet.style.height = `${state.timingZone.size * meterH}px`;
 }
@@ -3209,6 +3219,10 @@ function isThreePoint(p) {
 function updateBall(dt) {
   if (!state.ball) return;
   const b = state.ball;
+  if (b.missBounce) {
+    updateMissBounce(b, dt);
+    return;
+  }
   b.t += dt / b.duration;
   const t = clamp(b.t, 0, 1);
   const ease = 1 - Math.pow(1 - t, 3);
@@ -3219,6 +3233,10 @@ function updateBall(dt) {
     b.scored = true;
     const hoop = getAttackHoop(b.owner);
     if (b.freeThrow) {
+      if (!b.made) {
+        beginMissBounce(b, hoop);
+        return;
+      }
       finishFreeThrowAttempt(b);
       return;
     }
@@ -3239,10 +3257,46 @@ function updateBall(dt) {
       state.shake = 4;
       addBurst(b.targetX, b.targetY, "#d9572f", 12);
       showMessage(b.owner === "player" ? (b.quality > 0.58 ? "Rim out" : "Off balance") : "Stop");
-      const pickup = getReboundPickupSpot(hoop);
-      beginRebound(b.owner, pickup);
+      beginMissBounce(b, hoop);
     }
   }
+}
+
+function beginMissBounce(ball, hoop) {
+  const insideDirection = hoop === court.rightHoop ? -1 : 1;
+  const lateral = Math.random() * 2 - 1;
+  const depth = 88 + Math.random() * 142;
+  const spread = lateral * (72 + Math.random() * 112);
+  ball.missHandled = true;
+  ball.missBounce = {
+    startX: ball.targetX,
+    startY: ball.targetY,
+    endX: clamp(hoop.x + insideDirection * depth + lateral * 52, 44, court.w - 44),
+    endY: clamp(hoop.y + spread, 44, court.h - 44),
+    height: 48 + Math.random() * 58,
+    duration: 0.3 + Math.random() * 0.26,
+    elapsed: 0,
+  };
+  state.shake = Math.max(state.shake, 6);
+}
+
+function updateMissBounce(ball, dt) {
+  const bounce = ball.missBounce;
+  bounce.elapsed += dt;
+  const progress = clamp(bounce.elapsed / bounce.duration, 0, 1);
+  const ease = 1 - Math.pow(1 - progress, 2);
+  ball.x = bounce.startX + (bounce.endX - bounce.startX) * ease;
+  ball.y = bounce.startY + (bounce.endY - bounce.startY) * ease - Math.sin(progress * Math.PI) * bounce.height;
+  if (progress < 1) return;
+
+  ball.x = bounce.endX;
+  ball.y = bounce.endY;
+  ball.missBounce = null;
+  if (ball.freeThrow) {
+    finishFreeThrowAttempt(ball);
+    return;
+  }
+  beginRebound(ball.owner, { x: ball.x, y: ball.y });
 }
 
 function getScoreMessage(b) {
@@ -3611,7 +3665,8 @@ function getDribbleCadence(pose = { motion: 0 }) {
 
 function getDribbleBounce(p, pose = getCharacterAnimationPose(p)) {
   const cadence = getDribbleCadence(pose);
-  const beat = (state.time / 1000) * Math.PI * 2 * cadence + (p.animPhase || 0) * 0.16;
+  // Keep the bounce clock independent from running stride, so sharp turns do not speed it up.
+  const beat = (state.time / 1000) * Math.PI * 2 * cadence;
   return (1 - Math.cos(beat)) * 0.5;
 }
 

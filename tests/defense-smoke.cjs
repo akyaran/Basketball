@@ -318,6 +318,8 @@ globalThis.testResult.freeThrowSetup = {
   meterMoved: state.timingActive && state.timingValue > freeThrowMeterStart,
   laneTargets: freeThrowLaneTargets,
   lineup: freeThrowLineup,
+  zoneSize: state.timingZone.size,
+  shooterDistance: Math.abs(state.freeThrow.targets[freeThrowShooterKey].x - state.freeThrow.hoop.x),
   hoopX: state.freeThrow.hoop.x,
   hoopY: state.freeThrow.hoop.y,
 };
@@ -331,9 +333,11 @@ updateFreeThrows(1);
 updateFreeThrows(1);
 launchFreeThrow("player", false);
 updateFreeThrows(1);
+const freeThrowBounced = Boolean(state.ball?.missBounce);
+updateFreeThrows(1);
 const freeThrowReboundOwner = state.rebound?.owner;
 updateRebound(2);
-globalThis.testResult.freeThrowRebound = { winner: freeThrowReboundOwner, possession: state.possession, shotClock: state.shotClock, freeThrow: state.freeThrow };
+globalThis.testResult.freeThrowRebound = { bounced: freeThrowBounced, winner: freeThrowReboundOwner, possession: state.possession, shotClock: state.shotClock, freeThrow: state.freeThrow };
 setPossession("player");
 player.x = 700;
 player.y = 410;
@@ -345,9 +349,19 @@ state.ball = {
   made: false, quality: 0.2, points: 2, scored: false,
 };
 updateBall(1);
+const fieldShotBounced = Boolean(state.ball?.missBounce);
+updateBall(1);
 const fieldReboundOwner = state.rebound?.owner;
 updateRebound(2);
-globalThis.testResult.fieldRebound = { winner: fieldReboundOwner, possession: state.possession, shotClock: state.shotClock };
+globalThis.testResult.fieldRebound = { bounced: fieldShotBounced, winner: fieldReboundOwner, possession: state.possession, shotClock: state.shotClock };
+setPossession("player");
+state.ball = null;
+state.possessionTransition = null;
+state.shotClock = 0.01;
+player.y = 180;
+updateShotClock(0.1);
+globalThis.testResult.shotClockInbound = { possession: state.possessionTransition?.nextPossession, x: state.possessionTransition?.ballStart.x, y: state.possessionTransition?.ballStart.y };
+state.possessionTransition = null;
 setPossession("player");
 resetCharacterAnimation(player);
 player.x += 18;
@@ -357,6 +371,14 @@ state.time = 0;
 const dribbleLow = getDribbleBounce(player, movingPose);
 state.time = 95;
 const dribbleHigh = getDribbleBounce(player, movingPose);
+player.animPhase = 0;
+const dribbleTurnStart = getDribbleBounce(player, movingPose);
+player.animPhase = Math.PI;
+const dribbleTurnEnd = getDribbleBounce(player, movingPose);
+player.stamina = 0.08;
+player.dashExhausted = false;
+const finalDashSpeed = getCharacterMoveSpeed(player, true, true, 0.1);
+const emptyDashSpeed = getCharacterMoveSpeed(player, true, true, 0.1);
 player.animMotion = 0.8;
 player.animPhase = Math.PI / 2;
 const runningVisual = getCharacterVisual(player, true, true, getCharacterAnimationPose(player));
@@ -368,7 +390,13 @@ globalThis.testResult.characterMotion = {
   bob: movingPose.bob,
   dribbleLow,
   dribbleHigh,
+  dribbleTurnStart,
+  dribbleTurnEnd,
   maxDribbleCadence: getDribbleCadence({ motion: 1 }),
+  stamina: player.stamina,
+  dashExhausted: player.dashExhausted,
+  finalDashSpeed,
+  emptyDashSpeed,
   runningSprite: runningVisual.sprite === assets.playerRun,
   shootingSprite: shootingVisual.sprite === assets.playerShoot,
 };
@@ -489,20 +517,31 @@ assert.equal(result.cpuFoul.possession, "player");
 assert.equal(result.cpuFoul.freeThrow, true);
 assert.equal(result.cpuFoul.owner, "player");
 assert.equal(result.freeThrowSetup.meterMoved, true);
+assert.equal(result.freeThrowSetup.zoneSize, 0.11);
+assert.equal(result.freeThrowSetup.shooterDistance, 232);
 assert.ok(result.freeThrowSetup.lineup.defenseNear.every((spot) => spot && Math.abs(spot.x - (result.freeThrowSetup.hoopX - 82)) < 0.001));
 assert.ok(result.freeThrowSetup.lineup.offenseMiddle.every((spot) => spot && Math.abs(spot.x - (result.freeThrowSetup.hoopX - 154)) < 0.001));
 assert.ok(result.freeThrowSetup.lineup.defenseFar && Math.abs(result.freeThrowSetup.lineup.defenseFar.x - (result.freeThrowSetup.hoopX - 226)) < 0.001);
 assert.ok(result.freeThrowSetup.laneTargets.every((spot) => Math.abs(Math.abs(spot.y - result.freeThrowSetup.hoopY) - 104) < 0.001));
 assert.equal(result.freeThrowOutsideZone.made, false);
+assert.equal(result.freeThrowRebound.bounced, true);
 assert.equal(result.freeThrowRebound.freeThrow, null);
 assert.equal(result.freeThrowRebound.possession, result.freeThrowRebound.winner);
 assert.ok([14, 24].includes(result.freeThrowRebound.shotClock));
 assert.equal(result.fieldRebound.possession, result.fieldRebound.winner);
+assert.equal(result.fieldRebound.bounced, true);
 assert.ok([14, 24].includes(result.fieldRebound.shotClock));
+assert.equal(result.shotClockInbound.possession, "cpu");
+assert.equal(result.shotClockInbound.x, 771);
+assert.equal(result.shotClockInbound.y, 60);
 assert.ok(result.characterMotion.motion > 0.5);
 assert.ok(result.characterMotion.bob >= 0);
 assert.notEqual(result.characterMotion.dribbleLow, result.characterMotion.dribbleHigh);
+assert.equal(result.characterMotion.dribbleTurnStart, result.characterMotion.dribbleTurnEnd);
 assert.ok(result.characterMotion.maxDribbleCadence <= 1.53);
+assert.ok(result.characterMotion.stamina <= 0.001);
+assert.equal(result.characterMotion.dashExhausted, true);
+assert.ok(result.characterMotion.emptyDashSpeed < result.characterMotion.finalDashSpeed);
 assert.equal(result.characterMotion.runningSprite, true);
 assert.equal(result.characterMotion.shootingSprite, true);
 assert.equal(result.threeCelebration.paused.active, true);
