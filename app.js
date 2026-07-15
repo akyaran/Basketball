@@ -55,7 +55,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.4";
+const APP_VERSION = "0.10.5";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -182,7 +182,11 @@ const assets = {
   hoop: loadImage("assets/hoop.png"),
   playerBall: loadImage("assets/player.png"),
   playerDefense: loadImage("assets/player-defense.png"),
+  playerRun: loadImage("assets/player-run.png"),
+  playerShoot: loadImage("assets/player-shoot.png"),
   cpu: loadImage("assets/cpu.png"),
+  cpuRun: loadImage("assets/cpu-run.png"),
+  cpuShoot: loadImage("assets/cpu-shoot.png"),
 };
 
 const player = {
@@ -1581,6 +1585,7 @@ function launchShot(skill, source, perfectTiming) {
 
   state.ball = {
     owner: "player",
+    shooterKey: getPlayerKey(shooter),
     startX: shooter.x,
     startY: shooter.y - 7,
     x: shooter.x,
@@ -1986,6 +1991,7 @@ function launchCpuShot() {
 
   state.ball = {
     owner: "cpu",
+    shooterKey: getCpuKey(shooter),
     startX: shooter.x,
     startY: shooter.y - 7,
     x: shooter.x,
@@ -3376,9 +3382,9 @@ function drawCharacter(p, isPlayer) {
   const angle = Math.atan2(target.y - p.y, target.x - p.x);
   const pose = getCharacterAnimationPose(p);
   const isBallCarrier = !state.possessionTransition && !state.freeThrow && !state.rebound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
-  const sprite = isPlayer
-    ? (isBallCarrier ? assets.playerBall : assets.playerDefense)
-    : assets.cpu;
+  const visual = getCharacterVisual(p, isPlayer, isBallCarrier, pose);
+  const sprite = visual.sprite;
+  const visualPose = visual.pose;
 
   if (imageReady(sprite)) {
     const targetMax = p.r * 3.45;
@@ -3387,21 +3393,21 @@ function drawCharacter(p, isPlayer) {
     const targetH = sprite.naturalHeight * scale;
 
     ctx.save();
-    ctx.translate(p.x, p.y - pose.bob);
-    ctx.rotate(angle - Math.PI / 2 + pose.lean);
-    ctx.translate(pose.sway, 0);
-    ctx.scale(pose.width, pose.height);
+    ctx.translate(p.x, p.y - visualPose.bob);
+    ctx.rotate(angle - Math.PI / 2 + visualPose.lean);
+    ctx.translate(visualPose.sway, 0);
+    ctx.scale(visualPose.width, visualPose.height);
     ctx.drawImage(sprite, -targetW * 0.5, -targetH * 0.5, targetW, targetH);
     ctx.restore();
 
-    if (isBallCarrier) drawCarriedBall(p, angle, pose);
+    if (isBallCarrier) drawCarriedBall(p, angle, visualPose);
     return;
   }
 
   ctx.save();
-  ctx.translate(p.x, p.y - pose.bob);
-  ctx.rotate(angle + pose.lean);
-  ctx.scale(pose.width, pose.height);
+  ctx.translate(p.x, p.y - visualPose.bob);
+  ctx.rotate(angle + visualPose.lean);
+  ctx.scale(visualPose.width, visualPose.height);
   ctx.fillStyle = isPlayer ? "#f5bf45" : "#4aa3df";
   ctx.beginPath();
   ctx.arc(0, 0, p.r, 0, Math.PI * 2);
@@ -3417,13 +3423,45 @@ function drawCharacter(p, isPlayer) {
 
   const hasLiveBall = !state.possessionTransition && !state.freeThrow && !state.rebound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
   if (hasLiveBall) {
-    drawCarriedBall(p, angle, pose);
+    drawCarriedBall(p, angle, visualPose);
   }
 }
 
 function isCurrentBallCarrier(p, isPlayer) {
   if (isPlayer) return state.possession === "player" && p === getPlayerHandler();
   return state.possession === "cpu" && p === getCpuHandler();
+}
+
+function isShootingPose(p, isPlayer) {
+  const ball = state.ball;
+  if (!ball || ball.freeThrow || ball.finish || ball.t > 0.42 || !ball.shooterKey) return false;
+  const key = isPlayer ? getPlayerKey(p) : getCpuKey(p);
+  return ball.shooterKey === key;
+}
+
+function getCharacterVisual(p, isPlayer, isBallCarrier, pose) {
+  const idleSprite = isPlayer
+    ? (isBallCarrier ? assets.playerBall : assets.playerDefense)
+    : assets.cpu;
+  if (isShootingPose(p, isPlayer)) {
+    return {
+      sprite: isPlayer ? assets.playerShoot : assets.cpuShoot,
+      pose: { ...pose, bob: 0, sway: 0, lean: 0, width: 1, height: 1 },
+    };
+  }
+  const runningFrame = pose.motion > 0.22 && Math.sin(p.animPhase || 0) > -0.18;
+  if (!runningFrame) return { sprite: idleSprite, pose };
+  return {
+    sprite: isPlayer ? assets.playerRun : assets.cpuRun,
+    pose: {
+      ...pose,
+      bob: pose.bob * 0.38,
+      sway: pose.sway * 0.42,
+      lean: pose.lean * 0.4,
+      width: 1 + (pose.width - 1) * 0.35,
+      height: 1 + (pose.height - 1) * 0.35,
+    },
+  };
 }
 
 function getCharacterFacingTarget(p, isPlayer) {
@@ -3442,8 +3480,12 @@ function getCharacterFacingTarget(p, isPlayer) {
   return p === defender ? getPlayerHandler() : getPlayerOffBall();
 }
 
+function getDribbleCadence(pose = { motion: 0 }) {
+  return 1.3 + pose.motion * 1.35;
+}
+
 function getDribbleBounce(p, pose = getCharacterAnimationPose(p)) {
-  const cadence = 2.1 + pose.motion * 2.8;
+  const cadence = getDribbleCadence(pose);
   const beat = (state.time / 1000) * Math.PI * 2 * cadence + (p.animPhase || 0) * 0.16;
   return (1 - Math.cos(beat)) * 0.5;
 }

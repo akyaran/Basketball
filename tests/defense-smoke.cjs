@@ -340,7 +340,21 @@ state.time = 0;
 const dribbleLow = getDribbleBounce(player, movingPose);
 state.time = 95;
 const dribbleHigh = getDribbleBounce(player, movingPose);
-globalThis.testResult.characterMotion = { motion: movingPose.motion, bob: movingPose.bob, dribbleLow, dribbleHigh };
+player.animMotion = 0.8;
+player.animPhase = Math.PI / 2;
+const runningVisual = getCharacterVisual(player, true, true, getCharacterAnimationPose(player));
+state.ball = { owner: "player", shooterKey: "player", t: 0.2 };
+const shootingVisual = getCharacterVisual(player, true, false, getCharacterAnimationPose(player));
+state.ball = null;
+globalThis.testResult.characterMotion = {
+  motion: movingPose.motion,
+  bob: movingPose.bob,
+  dribbleLow,
+  dribbleHigh,
+  maxDribbleCadence: getDribbleCadence({ motion: 1 }),
+  runningSprite: runningVisual.sprite === assets.playerRun,
+  shootingSprite: shootingVisual.sprite === assets.playerShoot,
+};
 state.started = true;
 state.gameClock = 90;
 state.shotClock = 17;
@@ -465,6 +479,9 @@ assert.ok([14, 24].includes(result.fieldRebound.shotClock));
 assert.ok(result.characterMotion.motion > 0.5);
 assert.ok(result.characterMotion.bob >= 0);
 assert.notEqual(result.characterMotion.dribbleLow, result.characterMotion.dribbleHigh);
+assert.ok(result.characterMotion.maxDribbleCadence <= 2.66);
+assert.equal(result.characterMotion.runningSprite, true);
+assert.equal(result.characterMotion.shootingSprite, true);
 assert.equal(result.threeCelebration.paused.active, true);
 assert.equal(result.threeCelebration.paused.game, result.threeCelebration.initialClock.game);
 assert.equal(result.threeCelebration.paused.shot, result.threeCelebration.initialClock.shot);
