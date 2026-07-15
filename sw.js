@@ -1,4 +1,4 @@
-const CACHE_NAME = "basketball-1v1-v55";
+const CACHE_NAME = "basketball-1v1-v57";
 const ASSETS = [
   "./",
   "./index.html",
@@ -8,8 +8,8 @@ const ASSETS = [
   "./assets/court.png",
   "./assets/hoop.png",
   "./assets/player.png",
-  "./assets/player-defense.png",
-  "./assets/cpu.png",
+  "./assets/player-run.png",
+  "./assets/player-shoot.png",
   "./icons/icon-192.svg",
   "./icons/icon-512.svg"
 ];

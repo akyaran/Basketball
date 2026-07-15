@@ -135,7 +135,8 @@ button {
 }
 
 .slow-toggle,
-.home-button {
+.home-button,
+.pause-button {
   min-width: 104px;
   min-height: 48px;
   padding: 0 12px;
@@ -152,6 +153,20 @@ button {
 .home-button {
   min-width: 78px;
   color: rgba(247, 241, 227, 0.74);
+}
+
+.pause-button {
+  min-width: 48px;
+  width: 48px;
+  padding: 0;
+  color: rgba(247, 241, 227, 0.88);
+  font-size: 16px;
+  letter-spacing: 2px;
+}
+
+.pause-button.active {
+  background: #f5bf45;
+  color: #17130b;
 }
 
 .slow-toggle.active {

@@ -32,6 +32,7 @@
           <button id="timingMode" class="active" type="button">TIMING</button>
         </div>
         <button id="homeButton" class="home-button" type="button">HOME</button>
+        <button id="pauseButton" class="pause-button" type="button" aria-label="Pause" aria-pressed="false" title="Pause">||</button>
         <button id="slowToggle" class="slow-toggle" type="button" aria-pressed="false">SLOW OFF</button>
       </section>
 
@@ -75,13 +76,13 @@
         <strong id="celebrationText" class="celebration-text">DUNK!</strong>
         <span id="celebrationDetail" class="celebration-detail">2 POINTS</span>
       </div>
-      <div id="versionBadge" class="version-badge">v0.9.6</div>
+      <div id="versionBadge" class="version-badge">v0.10.7</div>
 
       <section id="titleScreen" class="title-screen" aria-label="タイトル">
         <div class="title-panel">
           <p class="kicker">1v1 / 2v2 / 3v3 / 5v5 Prototype</p>
           <h1>Basketball</h1>
-          <p id="titleVersion" class="title-version">v0.9.6</p>
+          <p id="titleVersion" class="title-version">v0.10.7</p>
           <div class="title-actions">
             <button id="startButton" class="primary-button" type="button">START</button>
             <button id="settingsButton" class="secondary-button" type="button">SETTINGS</button>
@@ -106,45 +107,45 @@
           </div>
           <label class="slider-row">
             <span>Defense effect</span>
-            <strong id="defenseValue">65%</strong>
-            <input id="defenseSlider" type="range" min="0" max="100" value="65" />
+            <strong id="defenseValue">66%</strong>
+            <input id="defenseSlider" type="range" min="0" max="100" value="66" />
           </label>
           <label class="slider-row">
             <span>Distance effect</span>
-            <strong id="distanceValue">65%</strong>
-            <input id="distanceSlider" type="range" min="0" max="100" value="65" />
+            <strong id="distanceValue">33%</strong>
+            <input id="distanceSlider" type="range" min="0" max="100" value="33" />
           </label>
           <label class="slider-row">
             <span>Meter speed</span>
-            <strong id="meterSpeedValue">70%</strong>
-            <input id="meterSpeedSlider" type="range" min="0" max="100" value="70" />
+            <strong id="meterSpeedValue">66%</strong>
+            <input id="meterSpeedSlider" type="range" min="0" max="100" value="66" />
           </label>
           <label class="slider-row">
             <span>Steal success</span>
-            <strong id="stealSuccessValue">65%</strong>
-            <input id="stealSuccessSlider" type="range" min="0" max="100" value="65" />
+            <strong id="stealSuccessValue">85%</strong>
+            <input id="stealSuccessSlider" type="range" min="0" max="100" value="85" />
           </label>
           <label class="slider-row">
             <span>Character size</span>
-            <strong id="characterSizeValue">38%</strong>
-            <input id="characterSizeSlider" type="range" min="0" max="100" value="38" />
+            <strong id="characterSizeValue">50%</strong>
+            <input id="characterSizeSlider" type="range" min="0" max="100" value="50" />
           </label>
           <label class="slider-row">
             <span>Move speed</span>
-            <strong id="moveSpeedValue">55%</strong>
-            <input id="moveSpeedSlider" type="range" min="0" max="100" value="55" />
+            <strong id="moveSpeedValue">25%</strong>
+            <input id="moveSpeedSlider" type="range" min="0" max="100" value="25" />
           </label>
           <label class="slider-row">
             <span>Camera zoom</span>
-            <strong id="cameraZoomValue">48%</strong>
-            <input id="cameraZoomSlider" type="range" min="0" max="100" value="48" />
+            <strong id="cameraZoomValue">80%</strong>
+            <input id="cameraZoomSlider" type="range" min="0" max="100" value="80" />
           </label>
           <label class="select-row">
             <span>Game time</span>
             <select id="gameTimeSelect">
               <option value="60">1:00</option>
-              <option value="120" selected>2:00</option>
-              <option value="180">3:00</option>
+              <option value="120">2:00</option>
+              <option value="180" selected>3:00</option>
               <option value="300">5:00</option>
             </select>
           </label>

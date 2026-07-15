@@ -10,6 +10,7 @@ const aimModeButton = document.getElementById("aimMode");
 const timingModeButton = document.getElementById("timingMode");
 const slowToggle = document.getElementById("slowToggle");
 const homeButton = document.getElementById("homeButton");
+const pauseButton = document.getElementById("pauseButton");
 const titleScreen = document.getElementById("titleScreen");
 const settingsPanel = document.getElementById("settingsPanel");
 const startButton = document.getElementById("startButton");
@@ -55,24 +56,24 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.5";
+const APP_VERSION = "0.10.7";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
 const STEAL_CONTACT_DISTANCE = 68;
 const DEFAULT_SETTINGS = {
-  defense: 0.65,
-  distance: 0.65,
-  meterSpeed: 0.7,
-  stealSuccess: 0.65,
-  characterSize: 0.38,
-  moveSpeed: 0.55,
-  cameraZoom: 0.48,
-  players: "1v1",
-  gameSeconds: 120,
+  defense: 0.66,
+  distance: 0.33,
+  meterSpeed: 0.66,
+  stealSuccess: 0.85,
+  characterSize: 0.5,
+  moveSpeed: 0.25,
+  cameraZoom: 0.8,
+  players: "5v5",
+  gameSeconds: 180,
 };
 const BASE_PLAYER_RADIUS = 21;
-const BASE_CPU_RADIUS = 23;
+const BASE_CPU_RADIUS = BASE_PLAYER_RADIUS;
 const NORMAL_MOVE_SPEED = 178;
 const DASH_MOVE_SPEED = 270;
 const STAMINA_DRAIN = 0.55;
@@ -100,6 +101,7 @@ const state = {
   viewW: 1000,
   viewH: 620,
   started: false,
+  paused: false,
   mode: "timing",
   time: 0,
   last: performance.now(),
@@ -174,20 +176,60 @@ function loadImage(src) {
 }
 
 function imageReady(image) {
-  return image.complete && image.naturalWidth > 0;
+  return Boolean(image && (image._ready || (image.complete && image.naturalWidth > 0)));
 }
 
 const assets = {
   court: loadImage("assets/court.png"),
   hoop: loadImage("assets/hoop.png"),
   playerBall: loadImage("assets/player.png"),
-  playerDefense: loadImage("assets/player-defense.png"),
   playerRun: loadImage("assets/player-run.png"),
   playerShoot: loadImage("assets/player-shoot.png"),
-  cpu: loadImage("assets/cpu.png"),
-  cpuRun: loadImage("assets/cpu-run.png"),
-  cpuShoot: loadImage("assets/cpu-shoot.png"),
 };
+
+// Both teams share the exact same pose sheets. Only yellow uniform pixels become blue.
+function createBlueUniformVariant(source) {
+  if (!source || typeof document === "undefined" || typeof document.createElement !== "function") return source;
+  const canvas = document.createElement("canvas");
+  canvas._ready = false;
+  const render = () => {
+    if (!source.naturalWidth || !source.naturalHeight) return;
+    canvas.width = source.naturalWidth;
+    canvas.height = source.naturalHeight;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    context.drawImage(source, 0, 0);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let index = 0; index < pixels.data.length; index += 4) {
+      const alpha = pixels.data[index + 3];
+      const red = pixels.data[index];
+      const green = pixels.data[index + 1];
+      const blue = pixels.data[index + 2];
+      if (!alpha || red < 105 || green < 75 || blue > Math.min(red, green) * 0.82) continue;
+      const max = Math.max(red, green, blue);
+      const min = Math.min(red, green, blue);
+      const hue = max === min ? 0 : max === red ? (green - blue) / (max - min) : max === green ? 2 + (blue - red) / (max - min) : 4 + (red - green) / (max - min);
+      const normalizedHue = ((hue * 60) + 360) % 360;
+      if (normalizedHue < 34 || normalizedHue > 70) continue;
+      const lightness = (max + min) / 510;
+      const saturation = max === min ? 0 : (max - min) / (1 - Math.abs(2 * lightness - 1)) / 255;
+      const chroma = (1 - Math.abs(2 * lightness - 1)) * Math.max(0.56, saturation);
+      const secondary = chroma * (1 - Math.abs(((218 / 60) % 2) - 1));
+      const match = lightness - chroma / 2;
+      pixels.data[index] = Math.round((0 + match) * 255);
+      pixels.data[index + 1] = Math.round((secondary + match) * 255);
+      pixels.data[index + 2] = Math.round((chroma + match) * 255);
+    }
+    context.putImageData(pixels, 0, 0);
+    canvas._ready = true;
+  };
+  if (source.complete && source.naturalWidth) render();
+  else if (typeof source.addEventListener === "function") source.addEventListener("load", render, { once: true });
+  return canvas;
+}
+
+assets.cpu = createBlueUniformVariant(assets.playerBall);
+assets.cpuRun = createBlueUniformVariant(assets.playerRun);
+assets.cpuShoot = createBlueUniformVariant(assets.playerShoot);
 
 const player = {
   x: 335,
@@ -247,7 +289,7 @@ const playerCorner = {
 const defender = {
   x: 525,
   y: 310,
-  r: 23,
+  r: BASE_CPU_RADIUS,
   color: "#4aa3df",
   vx: 0,
   vy: 0,
@@ -257,7 +299,7 @@ const defender = {
 const cpuMate = {
   x: 560,
   y: 410,
-  r: 23,
+  r: BASE_CPU_RADIUS,
   color: "#4aa3df",
   vx: 0,
   vy: 0,
@@ -267,7 +309,7 @@ const cpuMate = {
 const cpuWing = {
   x: 610,
   y: 210,
-  r: 23,
+  r: BASE_CPU_RADIUS,
   color: "#4aa3df",
   vx: 0,
   vy: 0,
@@ -277,7 +319,7 @@ const cpuWing = {
 const cpuBig = {
   x: 630,
   y: 520,
-  r: 23,
+  r: BASE_CPU_RADIUS,
   color: "#4aa3df",
   vx: 0,
   vy: 0,
@@ -287,7 +329,7 @@ const cpuBig = {
 const cpuCorner = {
   x: 640,
   y: 300,
-  r: 23,
+  r: BASE_CPU_RADIUS,
   color: "#4aa3df",
   vx: 0,
   vy: 0,
@@ -712,8 +754,16 @@ function updateStamina(p, dashing, moving, step) {
 }
 
 function getCharacterMoveSpeed(p, wantsDash, moving, step) {
-  const dashing = Boolean(wantsDash && moving && (p.stamina ?? 1) > 0.12);
+  if (typeof p.stamina !== "number") p.stamina = 1;
+  if (p.stamina <= 0.01) p.dashExhausted = true;
+  if (p.dashExhausted && (!wantsDash || !moving || p.stamina >= 0.42)) p.dashExhausted = false;
+  let dashing = Boolean(wantsDash && moving && !p.dashExhausted && p.stamina > 0.12);
   updateStamina(p, dashing, moving, step);
+  // The final sprint frame must not keep a full dash speed after the tank is empty.
+  if (p.stamina <= 0.01) {
+    p.dashExhausted = true;
+    dashing = false;
+  }
   const screenedScale = (p.screenedUntil || 0) > state.time ? 0.22 : 1;
   const stealRecoveryScale = (p.stealRecoveryUntil || 0) > state.time ? 0.4 : 1;
   return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale() * screenedScale * stealRecoveryScale;
@@ -918,7 +968,9 @@ function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   state.freeThrow = null;
   state.rebound = null;
   const receiverKey = options.receiverKey || getNearestReceiverKey(nextPossession, { x: ballX, y: ballY });
-  const spots = getStartSpots(nextPossession);
+  const spots = Object.fromEntries(
+    Object.entries(options.targets || getStartSpots(nextPossession)).map(([key, spot]) => [key, { ...spot }])
+  );
   if (options.receiverSpot) spots[receiverKey] = options.receiverSpot;
   const receiver = spots[receiverKey];
 
@@ -986,23 +1038,37 @@ function beginFreeThrows(owner, shooter) {
   const hoop = getAttackHoop(owner);
   const direction = hoop === court.rightHoop ? -1 : 1;
   const shooterSpot = { x: hoop.x + direction * 188, y: hoop.y };
-  // Six rebounders occupy the painted lane's upper and lower lines.
-  const laneSlots = [
-    { x: hoop.x + direction * 82, y: hoop.y - 104 },
-    { x: hoop.x + direction * 82, y: hoop.y + 104 },
-    { x: hoop.x + direction * 154, y: hoop.y - 104 },
-    { x: hoop.x + direction * 154, y: hoop.y + 104 },
-    { x: hoop.x + direction * 226, y: hoop.y - 104 },
-    { x: hoop.x + direction * 226, y: hoop.y + 104 },
-    { x: hoop.x + direction * 294, y: hoop.y },
-    { x: hoop.x + direction * 326, y: hoop.y - 154 },
-    { x: hoop.x + direction * 326, y: hoop.y + 154 },
-  ];
   const targets = {};
   const keyFor = (member) => (isPlayerTeam(member) ? getPlayerKey(member) : getCpuKey(member));
   targets[shooterKey] = shooterSpot;
-  getActiveCharacters().filter((member) => member !== shooter).forEach((member, index) => {
-    targets[keyFor(member)] = laneSlots[index % laneSlots.length];
+
+  // NBA lane order: two defenders closest to the basket, then two offensive
+  // rebounders, with the remaining far lane space reserved for a defender.
+  const offense = (owner === "player" ? getPlayerTeam() : getCpuTeam()).filter((member) => member !== shooter);
+  const defense = owner === "player" ? getCpuTeam() : getPlayerTeam();
+  const laneAssignments = [
+    { member: defense[0], spot: { x: hoop.x + direction * 82, y: hoop.y - 104 } },
+    { member: defense[1], spot: { x: hoop.x + direction * 82, y: hoop.y + 104 } },
+    { member: offense[0], spot: { x: hoop.x + direction * 154, y: hoop.y - 104 } },
+    { member: offense[1], spot: { x: hoop.x + direction * 154, y: hoop.y + 104 } },
+    { member: defense[2], spot: { x: hoop.x + direction * 226, y: hoop.y - 104 } },
+  ];
+  const assigned = new Set([shooter]);
+  for (const assignment of laneAssignments) {
+    if (!assignment.member) continue;
+    targets[keyFor(assignment.member)] = assignment.spot;
+    assigned.add(assignment.member);
+  }
+
+  // Everyone else waits outside the arc, clear of the lane and free-throw line.
+  const outsideSlots = [
+    { x: hoop.x + direction * 430, y: hoop.y },
+    { x: hoop.x + direction * 414, y: hoop.y - 212 },
+    { x: hoop.x + direction * 414, y: hoop.y + 212 },
+    { x: hoop.x + direction * 478, y: hoop.y + 278 },
+  ];
+  getActiveCharacters().filter((member) => !assigned.has(member)).forEach((member, index) => {
+    targets[keyFor(member)] = outsideSlots[index % outsideSlots.length];
   });
 
   state.possession = owner;
@@ -1188,6 +1254,20 @@ function beginRebound(shootingOwner, pickup, deadBall = false) {
     });
   const winner = candidates[0];
   if (!winner) return;
+  const supportTargets = {};
+  getActiveCharacters().forEach((member, index) => {
+    const owner = isPlayerTeam(member) ? "player" : "cpu";
+    const key = owner === "player" ? getPlayerKey(member) : getCpuKey(member);
+    if (key === winner.key) return;
+    const dx = member.x - pickup.x;
+    const dy = member.y - pickup.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const ring = owner === winner.owner ? 96 + (index % 2) * 24 : 138 + (index % 2) * 20;
+    supportTargets[key] = {
+      x: clamp(pickup.x + (dx / length) * ring, 48, court.w - 48),
+      y: clamp(pickup.y + (dy / length) * ring, 48, court.h - 48),
+    };
+  });
   state.ball = null;
   state.recoveryBall = { x: pickup.x, y: pickup.y };
   state.rebound = {
@@ -1198,6 +1278,7 @@ function beginRebound(shootingOwner, pickup, deadBall = false) {
     elapsed: 0,
     maxDuration: deadBall ? 1.1 : 0.9,
     deadBall,
+    supportTargets,
   };
 }
 
@@ -1207,6 +1288,13 @@ function updateRebound(step) {
   rebound.elapsed += step;
   const winner = getCharacterByKey(rebound.winnerKey);
   const arrived = moveCharacterToward(winner, rebound.pickup, step, false, 5);
+  for (const member of getActiveCharacters()) {
+    const owner = isPlayerTeam(member) ? "player" : "cpu";
+    const key = owner === "player" ? getPlayerKey(member) : getCpuKey(member);
+    if (key !== rebound.winnerKey && rebound.supportTargets[key]) {
+      moveCharacterToward(member, rebound.supportTargets[key], step, false, 6);
+    }
+  }
   state.recoveryBall = { x: rebound.pickup.x, y: rebound.pickup.y };
   resolveCharacterCollisions();
   if (!arrived && rebound.elapsed < rebound.maxDuration) return true;
@@ -1261,17 +1349,23 @@ function beginScoreCelebration(ball, hoop) {
   const color = ball.owner === "player" ? "#f5bf45" : "#4aa3df";
   const points = type === "three" ? 3 : 2;
   const pickup = getReboundPickupSpot(hoop);
+  const nextPossession = ball.owner === "player" ? "cpu" : "player";
+  const receiverKey = getNearestReceiverKey(nextPossession, pickup);
+  const targets = getStartSpots(nextPossession);
+  targets[receiverKey] = { ...pickup };
   state.celebration = {
     type,
     owner: ball.owner,
     remaining: 0.7,
     duration: 0.7,
-    nextPossession: ball.owner === "player" ? "cpu" : "player",
+    nextPossession,
     pickup,
+    receiverKey,
+    targets,
   };
   state.scoreFx = { x: hoop.x, y: hoop.y, type, color, life: 0.7, duration: 0.7 };
   state.ball = null;
-  state.recoveryBall = null;
+  state.recoveryBall = { ...pickup };
   clearTimingAction();
   clearGameplayInput();
   state.shake = Math.max(state.shake, type === "dunk" ? 18 : 11);
@@ -1288,12 +1382,16 @@ function beginScoreCelebration(ball, hoop) {
 function updateScoreCelebration(dt) {
   const celebrationState = state.celebration;
   if (!celebrationState) return false;
+  moveTransitionCharacters(celebrationState.targets, dt, celebrationState.receiverKey);
+  const receiver = getCharacterByKey(celebrationState.receiverKey);
+  state.recoveryBall = { x: receiver.x + 18, y: receiver.y - 18 };
+  resolveCharacterCollisions();
   celebrationState.remaining -= dt;
   updateParticles(dt);
   if (celebrationState.remaining > 0) return true;
-  const { nextPossession, pickup } = celebrationState;
+  const { nextPossession, pickup, receiverKey, targets } = celebrationState;
   clearScoreCelebration();
-  beginPossessionTransition(nextPossession, pickup.x, pickup.y, { receiverSpot: pickup });
+  beginPossessionTransition(nextPossession, pickup.x, pickup.y, { receiverKey, receiverSpot: pickup, targets });
   return true;
 }
 
@@ -1380,7 +1478,7 @@ function addBurst(x, y, color, count = 16) {
 }
 
 function startShot(pointer) {
-  if (!state.started || state.celebration) return;
+  if (!state.started || state.paused || state.celebration) return;
   if (state.freeThrow) {
     startFreeThrow(pointer);
     return;
@@ -1697,7 +1795,7 @@ function launchFinish(owner, kind, quality) {
 }
 
 function passPlayerBall() {
-  if (state.celebration) return;
+  if (state.paused || state.celebration) return;
   if (state.possession === "cpu") {
     cyclePlayerDefender();
     return;
@@ -1727,7 +1825,7 @@ function cyclePlayerDefender() {
 }
 
 function callPlayerScreen() {
-  if (state.celebration || !isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.freeThrow || state.rebound || state.timingActive || state.screenCooldown > 0) return;
+  if (state.paused || state.celebration || !isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.freeThrow || state.rebound || state.timingActive || state.screenCooldown > 0) return;
   const handler = getPlayerHandler();
   const defender = getNearestCpuDefender(handler);
   const inputDir = getInputMoveVector();
@@ -2050,7 +2148,7 @@ function shouldCpuShoot(profile, handlerSpace, rimDistance) {
 }
 
 function handleJoystickDown(event) {
-  if (state.celebration) return;
+  if (state.paused || state.celebration) return;
   input.joystickId = event.pointerId;
   const rect = joystick.getBoundingClientRect();
   input.joyStartX = rect.left + rect.width / 2;
@@ -2060,7 +2158,7 @@ function handleJoystickDown(event) {
 }
 
 function updateJoystick(event) {
-  if (state.celebration) return;
+  if (state.paused || state.celebration) return;
   if (input.joystickId !== event.pointerId) return;
   const max = joystick.clientWidth * 0.33;
   const dx = event.clientX - input.joyStartX;
@@ -2085,6 +2183,10 @@ function releaseJoystick(event) {
 function update(dt) {
   if (!state.started) {
     updateParticles(dt);
+    return;
+  }
+  if (state.paused) {
+    updateHud();
     return;
   }
   if (state.celebration) {
@@ -3022,6 +3124,7 @@ function setPlayerMode(mode) {
 
 function startGame() {
   state.started = true;
+  state.paused = false;
   state.gameOver = false;
   state.gameClock = settings.gameSeconds;
   state.playerScore = 0;
@@ -3031,12 +3134,14 @@ function startGame() {
   titleScreen.hidden = true;
   settingsPanel.hidden = true;
   state.last = performance.now();
+  syncPauseButton();
   resetPossession(true);
   showMessage("Check ball");
 }
 
 function returnToTitle() {
   state.started = false;
+  state.paused = false;
   state.gameOver = false;
   state.ball = null;
   state.possessionTransition = null;
@@ -3053,7 +3158,26 @@ function returnToTitle() {
   meter.classList.remove("show");
   titleScreen.hidden = false;
   settingsPanel.hidden = true;
+  syncPauseButton();
   toast.classList.remove("show");
+}
+
+function syncPauseButton() {
+  pauseButton.textContent = state.paused ? ">" : "||";
+  pauseButton.classList.toggle("active", state.paused);
+  pauseButton.setAttribute("aria-pressed", String(state.paused));
+  pauseButton.setAttribute("aria-label", state.paused ? "Resume" : "Pause");
+  pauseButton.title = state.paused ? "Resume" : "Pause";
+}
+
+function setPaused(paused) {
+  if (!state.started || state.gameOver || state.paused === paused) return;
+  state.paused = paused;
+  clearGameplayInput();
+  clearTimingAction();
+  meter.classList.remove("show");
+  syncPauseButton();
+  showMessage(paused ? "Paused" : "Resume");
 }
 
 function openSettings() {
@@ -3388,9 +3512,11 @@ function drawCharacter(p, isPlayer) {
 
   if (imageReady(sprite)) {
     const targetMax = p.r * 3.45;
-    const scale = targetMax / Math.max(sprite.naturalWidth, sprite.naturalHeight);
-    const targetW = sprite.naturalWidth * scale;
-    const targetH = sprite.naturalHeight * scale;
+    const spriteWidth = sprite.naturalWidth || sprite.width;
+    const spriteHeight = sprite.naturalHeight || sprite.height;
+    const scale = targetMax / Math.max(spriteWidth, spriteHeight);
+    const targetW = spriteWidth * scale;
+    const targetH = spriteHeight * scale;
 
     ctx.save();
     ctx.translate(p.x, p.y - visualPose.bob);
@@ -3440,9 +3566,7 @@ function isShootingPose(p, isPlayer) {
 }
 
 function getCharacterVisual(p, isPlayer, isBallCarrier, pose) {
-  const idleSprite = isPlayer
-    ? (isBallCarrier ? assets.playerBall : assets.playerDefense)
-    : assets.cpu;
+  const idleSprite = isPlayer ? assets.playerBall : assets.cpu;
   if (isShootingPose(p, isPlayer)) {
     return {
       sprite: isPlayer ? assets.playerShoot : assets.cpuShoot,
@@ -3481,7 +3605,8 @@ function getCharacterFacingTarget(p, isPlayer) {
 }
 
 function getDribbleCadence(pose = { motion: 0 }) {
-  return 1.3 + pose.motion * 1.35;
+  // Running adds a little urgency, but a real dribble rhythm should not double in tempo.
+  return 1.2 + Math.min(0.32, pose.motion * 0.34);
 }
 
 function getDribbleBounce(p, pose = getCharacterAnimationPose(p)) {
@@ -3685,7 +3810,7 @@ function loop(now) {
   const dt = Math.min(0.033, (now - state.last) / 1000);
   state.last = now;
   update(dt);
-  updateCharacterAnimations(dt);
+  updateCharacterAnimations(state.paused ? 0 : dt);
   ctx.clearRect(0, 0, state.w, state.h);
   drawBackground();
   drawCourt();
@@ -3731,7 +3856,7 @@ shootButton.addEventListener("selectstart", (event) => event.preventDefault());
 
 dashButton.addEventListener("pointerdown", (event) => {
   event.preventDefault();
-  if (state.celebration) return;
+  if (state.paused || state.celebration) return;
   input.dash = true;
 });
 dashButton.addEventListener("pointerup", (event) => {
@@ -3765,6 +3890,7 @@ aimModeButton.addEventListener("click", () => setMode("aim"));
 timingModeButton.addEventListener("click", () => setMode("timing"));
 slowToggle.addEventListener("click", () => setSlowEnabled(!state.slowEnabled));
 homeButton.addEventListener("click", returnToTitle);
+pauseButton.addEventListener("click", () => setPaused(!state.paused));
 startButton.addEventListener("click", startGame);
 settingsButton.addEventListener("click", openSettings);
 closeSettingsButton.addEventListener("click", closeSettings);

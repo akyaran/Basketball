@@ -69,6 +69,14 @@ const sandbox = {
 const appPath = path.join(__dirname, "..", "app.js");
 const assertions = `
 settings.players = "5v5";
+state.started = true;
+state.gameOver = false;
+state.gameClock = 100;
+state.shotClock = 17;
+setPaused(true);
+update(0.5);
+const pauseState = { active: state.paused, gameClock: state.gameClock, shotClock: state.shotClock };
+setPaused(false);
 const rightHomes = getTwoThreeZoneHomes(court.rightHoop);
 const leftHomes = getTwoThreeZoneHomes(court.leftHoop);
 globalThis.testResult = {
@@ -79,6 +87,7 @@ globalThis.testResult = {
   upperCorner: getTwoThreeCheckerIndex({ x: 1300, y: 100 }, court.rightHoop),
   lowerCorner: getTwoThreeCheckerIndex({ x: 1300, y: 720 }, court.rightHoop),
   paint: getTwoThreeCheckerIndex({ x: 1360, y: 410 }, court.rightHoop),
+  pauseState,
 };
 setPossession("cpu");
 player.x = 700;
@@ -185,6 +194,7 @@ resolveStealTiming();
 const afterSteal = getActiveCharacters().map((character) => ({ x: character.x, y: character.y }));
 Math.random = originalRandom;
 globalThis.testResult.stealSuccess = { possession: state.possession, handler: state.playerHandler, shotClock: state.shotClock, positionsUnchanged: JSON.stringify(beforeSteal) === JSON.stringify(afterSteal) };
+settings.stealSuccess = 0.65;
 globalThis.testResult.stealDifficulty = { close: getStealSuccessChance(48), reach: getStealSuccessChance(58), far: getStealSuccessChance(82) };
 setPossession("cpu");
 state.playerDefenderKey = "player";
@@ -296,12 +306,19 @@ const freeThrowShooterKey = state.freeThrow.shooterKey;
 const freeThrowLaneTargets = Object.entries(state.freeThrow.targets)
   .filter(([key]) => key !== freeThrowShooterKey)
   .map(([, spot]) => spot);
+const freeThrowLineup = {
+  defenseNear: [state.freeThrow.targets.defender, state.freeThrow.targets.cpuMate],
+  offenseMiddle: [state.freeThrow.targets.teammate, state.freeThrow.targets.playerWing],
+  defenseFar: state.freeThrow.targets.cpuWing,
+};
 startFreeThrow({ pointerId: "free-throw-meter" });
 const freeThrowMeterStart = state.timingValue;
 updateFreeThrows(0.12);
 globalThis.testResult.freeThrowSetup = {
   meterMoved: state.timingActive && state.timingValue > freeThrowMeterStart,
   laneTargets: freeThrowLaneTargets,
+  lineup: freeThrowLineup,
+  hoopX: state.freeThrow.hoop.x,
   hoopY: state.freeThrow.hoop.y,
 };
 state.timingValue = 0;
@@ -398,6 +415,9 @@ vm.runInContext(`${fs.readFileSync(appPath, "utf8")}\n${assertions}`, sandbox, {
 
 const result = sandbox.testResult;
 assert.equal(result.rightHomes.length, 5);
+assert.equal(result.pauseState.active, true);
+assert.equal(result.pauseState.gameClock, 100);
+assert.equal(result.pauseState.shotClock, 17);
 assert.equal(result.leftHomes.length, 5);
 assert.equal(result.upper, 0);
 assert.equal(result.lower, 1);
@@ -469,6 +489,9 @@ assert.equal(result.cpuFoul.possession, "player");
 assert.equal(result.cpuFoul.freeThrow, true);
 assert.equal(result.cpuFoul.owner, "player");
 assert.equal(result.freeThrowSetup.meterMoved, true);
+assert.ok(result.freeThrowSetup.lineup.defenseNear.every((spot) => spot && Math.abs(spot.x - (result.freeThrowSetup.hoopX - 82)) < 0.001));
+assert.ok(result.freeThrowSetup.lineup.offenseMiddle.every((spot) => spot && Math.abs(spot.x - (result.freeThrowSetup.hoopX - 154)) < 0.001));
+assert.ok(result.freeThrowSetup.lineup.defenseFar && Math.abs(result.freeThrowSetup.lineup.defenseFar.x - (result.freeThrowSetup.hoopX - 226)) < 0.001);
 assert.ok(result.freeThrowSetup.laneTargets.every((spot) => Math.abs(Math.abs(spot.y - result.freeThrowSetup.hoopY) - 104) < 0.001));
 assert.equal(result.freeThrowOutsideZone.made, false);
 assert.equal(result.freeThrowRebound.freeThrow, null);
@@ -479,7 +502,7 @@ assert.ok([14, 24].includes(result.fieldRebound.shotClock));
 assert.ok(result.characterMotion.motion > 0.5);
 assert.ok(result.characterMotion.bob >= 0);
 assert.notEqual(result.characterMotion.dribbleLow, result.characterMotion.dribbleHigh);
-assert.ok(result.characterMotion.maxDribbleCadence <= 2.66);
+assert.ok(result.characterMotion.maxDribbleCadence <= 1.53);
 assert.equal(result.characterMotion.runningSprite, true);
 assert.equal(result.characterMotion.shootingSprite, true);
 assert.equal(result.threeCelebration.paused.active, true);
