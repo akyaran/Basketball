@@ -331,6 +331,47 @@ updateBall(1);
 const fieldReboundOwner = state.rebound?.owner;
 updateRebound(2);
 globalThis.testResult.fieldRebound = { winner: fieldReboundOwner, possession: state.possession, shotClock: state.shotClock };
+setPossession("player");
+resetCharacterAnimation(player);
+player.x += 18;
+updateCharacterAnimations(0.1);
+const movingPose = getCharacterAnimationPose(player);
+state.time = 0;
+const dribbleLow = getDribbleBounce(player, movingPose);
+state.time = 95;
+const dribbleHigh = getDribbleBounce(player, movingPose);
+globalThis.testResult.characterMotion = { motion: movingPose.motion, bob: movingPose.bob, dribbleLow, dribbleHigh };
+state.started = true;
+state.gameClock = 90;
+state.shotClock = 17;
+state.ball = {
+  owner: "player", startX: player.x, startY: player.y, x: player.x, y: player.y,
+  targetX: court.rightHoop.x, targetY: court.rightHoop.y, t: 0, duration: 0.1,
+  made: true, quality: 0.9, points: 3, scored: false,
+};
+updateBall(1);
+const threeClock = { game: state.gameClock, shot: state.shotClock };
+update(0.35);
+const threePaused = { game: state.gameClock, shot: state.shotClock, active: Boolean(state.celebration) };
+update(0.36);
+globalThis.testResult.threeCelebration = { type: state.scoreFx?.type || "ended", paused: threePaused, transition: Boolean(state.possessionTransition), initialClock: threeClock };
+setPossession("cpu");
+state.ball = {
+  owner: "cpu", startX: defender.x, startY: defender.y, x: defender.x, y: defender.y,
+  targetX: court.leftHoop.x, targetY: court.leftHoop.y, t: 0, duration: 0.1,
+  made: true, quality: 0.95, points: 2, finish: "dunk", scored: false,
+};
+updateBall(1);
+globalThis.testResult.dunkCelebration = { type: state.celebration?.type, owner: state.celebration?.owner, active: Boolean(state.celebration) };
+clearScoreCelebration();
+setPossession("player");
+state.ball = {
+  owner: "player", startX: player.x, startY: player.y, x: player.x, y: player.y,
+  targetX: court.rightHoop.x, targetY: court.rightHoop.y, t: 0, duration: 0.1,
+  made: true, quality: 0.8, points: 2, scored: false,
+};
+updateBall(1);
+globalThis.testResult.twoPointNoCelebration = { active: Boolean(state.celebration), transition: Boolean(state.possessionTransition) };
 settings.stealSuccess = 0;
 const lowSteal = { chance: getStealSuccessChance(58), zone: getStealTimingZoneForDistance(48).size };
 settings.stealSuccess = 1;
@@ -421,6 +462,18 @@ assert.equal(result.freeThrowRebound.possession, result.freeThrowRebound.winner)
 assert.ok([14, 24].includes(result.freeThrowRebound.shotClock));
 assert.equal(result.fieldRebound.possession, result.fieldRebound.winner);
 assert.ok([14, 24].includes(result.fieldRebound.shotClock));
+assert.ok(result.characterMotion.motion > 0.5);
+assert.ok(result.characterMotion.bob >= 0);
+assert.notEqual(result.characterMotion.dribbleLow, result.characterMotion.dribbleHigh);
+assert.equal(result.threeCelebration.paused.active, true);
+assert.equal(result.threeCelebration.paused.game, result.threeCelebration.initialClock.game);
+assert.equal(result.threeCelebration.paused.shot, result.threeCelebration.initialClock.shot);
+assert.equal(result.threeCelebration.transition, true);
+assert.equal(result.dunkCelebration.type, "dunk");
+assert.equal(result.dunkCelebration.owner, "cpu");
+assert.equal(result.dunkCelebration.active, true);
+assert.equal(result.twoPointNoCelebration.active, false);
+assert.equal(result.twoPointNoCelebration.transition, true);
 assert.ok(result.stealSetting.highSteal.chance > result.stealSetting.lowSteal.chance);
 assert.ok(result.stealSetting.highSteal.zone > result.stealSetting.lowSteal.zone);
 console.log("Turnover, steal, defense, screen-play, and collision smoke test passed");

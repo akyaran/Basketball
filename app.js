@@ -42,6 +42,9 @@ const meter = document.getElementById("meter");
 const sweet = document.querySelector(".sweet");
 const needle = document.getElementById("needle");
 const toast = document.getElementById("toast");
+const celebration = document.getElementById("celebration");
+const celebrationText = document.getElementById("celebrationText");
+const celebrationDetail = document.getElementById("celebrationDetail");
 const versionBadge = document.getElementById("versionBadge");
 const titleVersion = document.getElementById("titleVersion");
 const shotReadout = document.getElementById("shotReadout");
@@ -52,7 +55,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.3";
+const APP_VERSION = "0.10.4";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -125,6 +128,8 @@ const state = {
   freeThrow: null,
   rebound: null,
   dunkFx: null,
+  scoreFx: null,
+  celebration: null,
   possessionTransition: null,
   recoveryBall: null,
   messageTimer: 0,
@@ -775,6 +780,44 @@ function applyCharacterSettings() {
   for (const p of cpuRoster) p.r = BASE_CPU_RADIUS * scale;
 }
 
+function resetCharacterAnimation(p) {
+  p.animLastX = p.x;
+  p.animLastY = p.y;
+  p.animMotion = 0;
+  p.animPhase = p.animPhase ?? ((p.x * 0.019 + p.y * 0.013) % (Math.PI * 2));
+}
+
+function updateCharacterAnimations(dt) {
+  for (const p of getActiveCharacters()) {
+    if (!Number.isFinite(p.animLastX) || !Number.isFinite(p.animLastY)) {
+      resetCharacterAnimation(p);
+      continue;
+    }
+    const moved = Math.hypot(p.x - p.animLastX, p.y - p.animLastY);
+    const teleported = moved > 86;
+    const speed = teleported ? 0 : moved / Math.max(dt, 0.001);
+    const targetMotion = clamp(speed / (NORMAL_MOVE_SPEED * 1.15), 0, 1);
+    p.animMotion += (targetMotion - p.animMotion) * Math.min(1, dt * 13);
+    p.animPhase += dt * (1.6 + speed * 0.05);
+    p.animLastX = p.x;
+    p.animLastY = p.y;
+  }
+}
+
+function getCharacterAnimationPose(p) {
+  const motion = clamp(p.animMotion || 0, 0, 1);
+  const phase = p.animPhase || 0;
+  const stride = Math.sin(phase);
+  return {
+    motion,
+    bob: Math.max(0, stride) * p.r * 0.13 * motion,
+    sway: Math.cos(phase) * p.r * 0.055 * motion,
+    lean: stride * 0.045 * motion,
+    width: 1 + Math.abs(stride) * 0.035 * motion,
+    height: 1 - Math.abs(stride) * 0.03 * motion,
+  };
+}
+
 function resetPossession(scoredByPlayer) {
   setPossession(scoredByPlayer ? "player" : "cpu");
 }
@@ -809,6 +852,7 @@ function setPossession(possession) {
   state.stealAttempt = null;
   state.timingHold = 0;
   state.dunkFx = null;
+  clearScoreCelebration();
   meter.classList.remove("show");
 }
 
@@ -862,6 +906,7 @@ function setCharacterPosition(p, spot) {
   p.y = spot.y;
   p.vx = 0;
   p.vy = 0;
+  resetCharacterAnimation(p);
 }
 
 function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
@@ -1189,6 +1234,65 @@ function addScore(owner, points) {
   }
 }
 
+function clearGameplayInput() {
+  input.moveX = 0;
+  input.moveY = 0;
+  input.dash = false;
+  input.joystickId = null;
+  input.shootingId = null;
+  keys.clear();
+  stick.style.transform = "translate(-50%, -50%)";
+}
+
+function clearScoreCelebration() {
+  state.celebration = null;
+  state.scoreFx = null;
+  celebration.classList.remove("show", "dunk", "three");
+  celebration.hidden = true;
+  celebration.setAttribute("aria-hidden", "true");
+}
+
+function beginScoreCelebration(ball, hoop) {
+  const type = ball.finish === "dunk" ? "dunk" : "three";
+  const color = ball.owner === "player" ? "#f5bf45" : "#4aa3df";
+  const points = type === "three" ? 3 : 2;
+  const pickup = getReboundPickupSpot(hoop);
+  state.celebration = {
+    type,
+    owner: ball.owner,
+    remaining: 0.7,
+    duration: 0.7,
+    nextPossession: ball.owner === "player" ? "cpu" : "player",
+    pickup,
+  };
+  state.scoreFx = { x: hoop.x, y: hoop.y, type, color, life: 0.7, duration: 0.7 };
+  state.ball = null;
+  state.recoveryBall = null;
+  clearTimingAction();
+  clearGameplayInput();
+  state.shake = Math.max(state.shake, type === "dunk" ? 18 : 11);
+  addBurst(hoop.x, hoop.y, color, type === "dunk" ? 46 : 34);
+  celebrationText.textContent = type === "dunk" ? "DUNK!" : "3 POINTER!";
+  celebrationDetail.textContent = `${points} POINTS`;
+  celebration.style["--celebration-color"] = color;
+  celebration.hidden = false;
+  celebration.setAttribute("aria-hidden", "false");
+  celebration.classList.remove("show", "dunk", "three");
+  celebration.classList.add(type, "show");
+}
+
+function updateScoreCelebration(dt) {
+  const celebrationState = state.celebration;
+  if (!celebrationState) return false;
+  celebrationState.remaining -= dt;
+  updateParticles(dt);
+  if (celebrationState.remaining > 0) return true;
+  const { nextPossession, pickup } = celebrationState;
+  clearScoreCelebration();
+  beginPossessionTransition(nextPossession, pickup.x, pickup.y, { receiverSpot: pickup });
+  return true;
+}
+
 function moveTransitionCharacters(targets, step, receiverKey) {
   const arrived = {
     player: moveTransitionCharacter(player, targets.player, step),
@@ -1272,7 +1376,7 @@ function addBurst(x, y, color, count = 16) {
 }
 
 function startShot(pointer) {
-  if (!state.started) return;
+  if (!state.started || state.celebration) return;
   if (state.freeThrow) {
     startFreeThrow(pointer);
     return;
@@ -1311,7 +1415,7 @@ function startShot(pointer) {
 }
 
 function startSteal(pointer) {
-  if (state.ball || state.passBall || state.timingActive) return;
+  if (state.celebration || state.ball || state.passBall || state.timingActive) return;
   const defender = getPlayerControlledDefender();
   const handler = getCpuHandler();
   const stealDistance = distance(defender, handler);
@@ -1579,14 +1683,16 @@ function launchFinish(owner, kind, quality) {
   meter.classList.remove("show");
   state.slowUntil = state.time + (kind === "dunk" ? 460 : 280);
   if (kind === "dunk") {
+    const dunkColor = owner === "player" ? "#f5bf45" : "#4aa3df";
     state.shake = Math.max(state.shake, 14);
-    state.dunkFx = { x: hoop.x, y: hoop.y, life: 0.52, duration: 0.52 };
-    addBurst(hoop.x, hoop.y, "#f5bf45", 34);
+    state.dunkFx = { x: hoop.x, y: hoop.y, color: dunkColor, life: 0.52, duration: 0.52 };
+    addBurst(hoop.x, hoop.y, dunkColor, 34);
   }
   showMessage(owner === "player" ? (kind === "dunk" ? "Dunk" : "Layup") : (kind === "dunk" ? "CPU dunk" : "CPU layup"));
 }
 
 function passPlayerBall() {
+  if (state.celebration) return;
   if (state.possession === "cpu") {
     cyclePlayerDefender();
     return;
@@ -1616,7 +1722,7 @@ function cyclePlayerDefender() {
 }
 
 function callPlayerScreen() {
-  if (!isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.freeThrow || state.rebound || state.timingActive || state.screenCooldown > 0) return;
+  if (state.celebration || !isTwoOnTwo() || state.possession !== "player" || state.ball || state.passBall || state.possessionTransition || state.freeThrow || state.rebound || state.timingActive || state.screenCooldown > 0) return;
   const handler = getPlayerHandler();
   const defender = getNearestCpuDefender(handler);
   const inputDir = getInputMoveVector();
@@ -1938,6 +2044,7 @@ function shouldCpuShoot(profile, handlerSpace, rimDistance) {
 }
 
 function handleJoystickDown(event) {
+  if (state.celebration) return;
   input.joystickId = event.pointerId;
   const rect = joystick.getBoundingClientRect();
   input.joyStartX = rect.left + rect.width / 2;
@@ -1947,6 +2054,7 @@ function handleJoystickDown(event) {
 }
 
 function updateJoystick(event) {
+  if (state.celebration) return;
   if (input.joystickId !== event.pointerId) return;
   const max = joystick.clientWidth * 0.33;
   const dx = event.clientX - input.joyStartX;
@@ -1971,6 +2079,11 @@ function releaseJoystick(event) {
 function update(dt) {
   if (!state.started) {
     updateParticles(dt);
+    return;
+  }
+  if (state.celebration) {
+    updateScoreCelebration(dt);
+    updateHud();
     return;
   }
   const slow = state.slowEnabled && (state.slowUntil > state.time || state.timingActive) ? 0.44 : 1;
@@ -2926,6 +3039,7 @@ function returnToTitle() {
   state.freeThrow = null;
   state.rebound = null;
   state.dunkFx = null;
+  clearScoreCelebration();
   state.timingActive = false;
   state.timingHold = 0;
   input.shootingId = null;
@@ -2983,6 +3097,10 @@ function updateBall(dt) {
       state.shake = 8;
       addBurst(hoop.x, hoop.y, "#99d6c2", 26);
       showMessage(getScoreMessage(b));
+      if (b.finish === "dunk" || b.points === 3) {
+        beginScoreCelebration(b, hoop);
+        return;
+      }
       const pickup = getReboundPickupSpot(hoop);
       beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y, {
         receiverSpot: pickup,
@@ -3017,6 +3135,10 @@ function updateParticles(dt) {
   if (state.dunkFx) {
     state.dunkFx.life -= dt;
     if (state.dunkFx.life <= 0) state.dunkFx = null;
+  }
+  if (state.scoreFx) {
+    state.scoreFx.life -= dt;
+    if (state.scoreFx.life <= 0) state.scoreFx = null;
   }
   if (state.messageTimer > 0) {
     state.messageTimer -= dt;
@@ -3114,6 +3236,7 @@ function drawCourt() {
   drawPassBall();
   drawRecoveryBall();
   drawDunkFx();
+  drawScoreFx();
   drawParticles();
 
   ctx.restore();
@@ -3233,15 +3356,25 @@ function drawControlMarker() {
 }
 
 function drawPlayerShadow(p) {
-  ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+  const pose = getCharacterAnimationPose(p);
+  ctx.fillStyle = `rgba(0, 0, 0, ${0.21 + pose.motion * 0.07})`;
   ctx.beginPath();
-  ctx.ellipse(p.x, p.y + p.r + 7, p.r * 1.2, p.r * 0.42, 0, 0, Math.PI * 2);
+  ctx.ellipse(
+    p.x,
+    p.y + p.r + 7,
+    p.r * (1.18 + pose.motion * 0.14),
+    p.r * (0.42 - pose.motion * 0.04),
+    0,
+    0,
+    Math.PI * 2
+  );
   ctx.fill();
 }
 
 function drawCharacter(p, isPlayer) {
   const target = getCharacterFacingTarget(p, isPlayer);
   const angle = Math.atan2(target.y - p.y, target.x - p.x);
+  const pose = getCharacterAnimationPose(p);
   const isBallCarrier = !state.possessionTransition && !state.freeThrow && !state.rebound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
   const sprite = isPlayer
     ? (isBallCarrier ? assets.playerBall : assets.playerDefense)
@@ -3254,18 +3387,21 @@ function drawCharacter(p, isPlayer) {
     const targetH = sprite.naturalHeight * scale;
 
     ctx.save();
-    ctx.translate(p.x, p.y);
-    ctx.rotate(angle - Math.PI / 2);
+    ctx.translate(p.x, p.y - pose.bob);
+    ctx.rotate(angle - Math.PI / 2 + pose.lean);
+    ctx.translate(pose.sway, 0);
+    ctx.scale(pose.width, pose.height);
     ctx.drawImage(sprite, -targetW * 0.5, -targetH * 0.5, targetW, targetH);
     ctx.restore();
 
-    if (isBallCarrier) drawCarriedBall(p);
+    if (isBallCarrier) drawCarriedBall(p, angle, pose);
     return;
   }
 
   ctx.save();
-  ctx.translate(p.x, p.y);
-  ctx.rotate(angle);
+  ctx.translate(p.x, p.y - pose.bob);
+  ctx.rotate(angle + pose.lean);
+  ctx.scale(pose.width, pose.height);
   ctx.fillStyle = isPlayer ? "#f5bf45" : "#4aa3df";
   ctx.beginPath();
   ctx.arc(0, 0, p.r, 0, Math.PI * 2);
@@ -3281,7 +3417,7 @@ function drawCharacter(p, isPlayer) {
 
   const hasLiveBall = !state.possessionTransition && !state.freeThrow && !state.rebound && !state.ball && !state.passBall && isCurrentBallCarrier(p, isPlayer);
   if (hasLiveBall) {
-    drawCarriedBall(p);
+    drawCarriedBall(p, angle, pose);
   }
 }
 
@@ -3306,11 +3442,28 @@ function getCharacterFacingTarget(p, isPlayer) {
   return p === defender ? getPlayerHandler() : getPlayerOffBall();
 }
 
-function drawCarriedBall(p) {
+function getDribbleBounce(p, pose = getCharacterAnimationPose(p)) {
+  const cadence = 2.1 + pose.motion * 2.8;
+  const beat = (state.time / 1000) * Math.PI * 2 * cadence + (p.animPhase || 0) * 0.16;
+  return (1 - Math.cos(beat)) * 0.5;
+}
+
+function drawCarriedBall(p, angle, pose = getCharacterAnimationPose(p)) {
+  const bounce = getDribbleBounce(p, pose);
+  const forward = { x: Math.cos(angle), y: Math.sin(angle) };
+  const side = { x: -forward.y, y: forward.x };
+  const floorX = p.x + side.x * p.r * 0.9 + forward.x * p.r * 0.2;
+  const floorY = p.y + side.y * p.r * 0.9 + forward.y * p.r * 0.2;
+  const ballRadius = p.r * (0.39 + bounce * 0.08);
+  const ballX = floorX + side.x * (bounce - 0.5) * p.r * 0.14;
+  const ballY = floorY - p.r * (0.15 + bounce * 0.72) - pose.bob * 0.42;
+
+  ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+  ctx.beginPath();
+  ctx.ellipse(floorX, floorY + ballRadius * 1.15, ballRadius * 1.04, ballRadius * 0.34, 0, 0, Math.PI * 2);
+  ctx.fill();
+
   ctx.fillStyle = "#c96536";
-  const ballRadius = p.r * 0.48;
-  const ballX = p.x + p.r * 0.86;
-  const ballY = p.y - p.r * 0.86;
   ctx.beginPath();
   ctx.arc(ballX, ballY, ballRadius, 0, Math.PI * 2);
   ctx.fill();
@@ -3424,7 +3577,7 @@ function drawDunkFx() {
   const t = 1 - clamp(fx.life / fx.duration, 0, 1);
   ctx.save();
   ctx.globalAlpha = 1 - t;
-  ctx.strokeStyle = "#f5bf45";
+  ctx.strokeStyle = fx.color || "#f5bf45";
   ctx.lineWidth = 5;
   ctx.beginPath();
   ctx.arc(fx.x, fx.y, 34 + t * 86, 0, Math.PI * 2);
@@ -3437,6 +3590,26 @@ function drawDunkFx() {
     ctx.beginPath();
     ctx.arc(fx.x + Math.cos(a) * r, fx.y + Math.sin(a) * r, 3.5, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawScoreFx() {
+  if (!state.scoreFx) return;
+  const fx = state.scoreFx;
+  const t = 1 - clamp(fx.life / fx.duration, 0, 1);
+  const ringCount = fx.type === "three" ? 3 : 2;
+  ctx.save();
+  for (let i = 0; i < ringCount; i += 1) {
+    const delay = i * 0.12;
+    const progress = clamp((t - delay) / (1 - delay), 0, 1);
+    if (progress <= 0) continue;
+    ctx.globalAlpha = (1 - progress) * (fx.type === "dunk" ? 0.9 : 0.72);
+    ctx.strokeStyle = fx.color;
+    ctx.lineWidth = fx.type === "dunk" ? 7 - i : 5 - i * 0.5;
+    ctx.beginPath();
+    ctx.arc(fx.x, fx.y, 34 + progress * (fx.type === "dunk" ? 126 : 104) + i * 12, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -3470,6 +3643,7 @@ function loop(now) {
   const dt = Math.min(0.033, (now - state.last) / 1000);
   state.last = now;
   update(dt);
+  updateCharacterAnimations(dt);
   ctx.clearRect(0, 0, state.w, state.h);
   drawBackground();
   drawCourt();
@@ -3515,6 +3689,7 @@ shootButton.addEventListener("selectstart", (event) => event.preventDefault());
 
 dashButton.addEventListener("pointerdown", (event) => {
   event.preventDefault();
+  if (state.celebration) return;
   input.dash = true;
 });
 dashButton.addEventListener("pointerup", (event) => {
