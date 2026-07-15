@@ -362,6 +362,40 @@ player.y = 180;
 updateShotClock(0.1);
 globalThis.testResult.shotClockInbound = { possession: state.possessionTransition?.nextPossession, x: state.possessionTransition?.ballStart.x, y: state.possessionTransition?.ballStart.y };
 state.possessionTransition = null;
+setPossession("cpu");
+state.ball = null;
+state.shotClock = 0.01;
+defender.y = 180;
+updateShotClock(0.1);
+const manualInbound = state.possessionTransition;
+const manualReceiver = getCharacterByKey(manualInbound.receiverKey);
+const manualInboundStart = { x: manualReceiver.x, y: manualReceiver.y };
+const inboundDx = manualInbound.ballStart.x - manualReceiver.x;
+const inboundDy = manualInbound.ballStart.y - manualReceiver.y;
+const inboundLength = Math.hypot(inboundDx, inboundDy) || 1;
+input.moveX = inboundDx / inboundLength;
+input.moveY = inboundDy / inboundLength;
+updatePossessionTransition(0.12);
+input.moveX = 0;
+input.moveY = 0;
+globalThis.testResult.manualInbound = {
+  manual: manualInbound.manualReceiver,
+  moved: distance(manualReceiver, manualInboundStart) > 0.1,
+};
+state.possessionTransition = null;
+setPossession("player");
+player.x = 1310;
+player.y = 410;
+const airCatchBall = {
+  owner: "player", targetX: court.rightHoop.x, targetY: court.rightHoop.y,
+  x: court.rightHoop.x, y: court.rightHoop.y, freeThrow: false,
+};
+Math.random = () => 0.5;
+beginMissBounce(airCatchBall, court.rightHoop);
+state.ball = airCatchBall;
+updateMissBounce(airCatchBall, airCatchBall.missBounce.duration * 0.75);
+Math.random = originalRandom;
+globalThis.testResult.airCatch = { caught: state.ball === null, possession: state.possession };
 setPossession("player");
 resetCharacterAnimation(player);
 player.x += 18;
@@ -534,6 +568,10 @@ assert.ok([14, 24].includes(result.fieldRebound.shotClock));
 assert.equal(result.shotClockInbound.possession, "cpu");
 assert.equal(result.shotClockInbound.x, 771);
 assert.equal(result.shotClockInbound.y, 60);
+assert.equal(result.manualInbound.manual, true);
+assert.equal(result.manualInbound.moved, true);
+assert.equal(result.airCatch.caught, true);
+assert.equal(result.airCatch.possession, "player");
 assert.ok(result.characterMotion.motion > 0.5);
 assert.ok(result.characterMotion.bob >= 0);
 assert.notEqual(result.characterMotion.dribbleLow, result.characterMotion.dribbleHigh);

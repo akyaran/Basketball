@@ -56,7 +56,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.8";
+const APP_VERSION = "0.10.9";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -357,7 +357,7 @@ function resize() {
   updateCamera(true);
 }
 
-function updateViewSize(usableW = state.w, usableH = state.h) {
+function updateViewSize(usableW = state.w, usableH = state.h, force = false) {
   const aspect = usableW / Math.max(1, usableH);
   const bounds = getCameraBounds();
   const zoomPad = 34 + settings.cameraZoom * 92;
@@ -370,7 +370,8 @@ function updateViewSize(usableW = state.w, usableH = state.h) {
     state.viewH = desiredH;
     state.viewW = Math.min(court.w, state.viewH * aspect);
   }
-  state.scale = Math.min(usableW / state.viewW, usableH / state.viewH);
+  const targetScale = Math.min(usableW / state.viewW, usableH / state.viewH);
+  state.scale = force || !Number.isFinite(state.scale) ? targetScale : state.scale + (targetScale - state.scale) * 0.12;
   state.viewW = usableW / state.scale;
   state.viewH = usableH / state.scale;
 }
@@ -384,7 +385,7 @@ function worldToScreen(p) {
 
 function updateCamera(force = false) {
   const margin = state.w < 760 ? 10 : 18;
-  updateViewSize(state.w - margin * 2, state.h - margin * 2);
+  updateViewSize(state.w - margin * 2, state.h - margin * 2, force);
   const bounds = getCameraBounds();
   const focus = getCameraFocus(bounds);
   const minX = clamp(bounds.maxX - state.viewW, 0, Math.max(0, court.w - state.viewW));
@@ -499,6 +500,11 @@ function getPlayerHandler() {
 
 function getPlayerControlledDefender() {
   return findByKey(getPlayerTeam(), state.playerDefenderKey, player);
+}
+
+function getControlledPlayerCharacter() {
+  if (state.possessionTransition?.manualReceiver) return getCharacterByKey(state.possessionTransition.receiverKey);
+  return state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
 }
 
 function getCpuHandler() {
@@ -978,6 +984,8 @@ function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   state.possessionTransition = {
     nextPossession,
     receiverKey,
+    inbound: Boolean(options.inbound),
+    manualReceiver: Boolean(options.manualReceiver && nextPossession === "player"),
     elapsed: 0,
     maxDuration: options.maxDuration || 5.2,
     targets: spots,
@@ -1010,17 +1018,35 @@ function getReboundPickupSpot(hoop) {
   };
 }
 
+function getGoalLineInboundSpot(hoop) {
+  return {
+    x: hoop === court.rightHoop ? court.w - court.lineInset - 30 : court.lineInset + 30,
+    y: hoop.y,
+  };
+}
+
 function updatePossessionTransition(step) {
   const transition = state.possessionTransition;
   if (!transition) return false;
 
   transition.elapsed += step;
-  const receiverArrived = moveTransitionCharacters(transition.targets, step, transition.receiverKey);
+  let receiverArrived;
+  if (transition.manualReceiver) {
+    moveTransitionCharacters(transition.targets, step, transition.receiverKey, transition.receiverKey);
+    receiverArrived = moveManualInboundReceiver(transition, step);
+  } else {
+    receiverArrived = moveTransitionCharacters(transition.targets, step, transition.receiverKey);
+  }
 
   if (state.recoveryBall) {
     const receiver = getCharacterByKey(transition.receiverKey);
-    state.recoveryBall.x = receiver.x + 18;
-    state.recoveryBall.y = receiver.y - 18;
+    if (transition.inbound) {
+      state.recoveryBall.x = transition.ballStart.x;
+      state.recoveryBall.y = transition.ballStart.y;
+    } else {
+      state.recoveryBall.x = receiver.x + 18;
+      state.recoveryBall.y = receiver.y - 18;
+    }
   }
   resolveCharacterCollisions();
 
@@ -1031,6 +1057,18 @@ function updatePossessionTransition(step) {
   }
 
   return true;
+}
+
+function moveManualInboundReceiver(transition, step) {
+  const receiver = getCharacterByKey(transition.receiverKey);
+  const move = getInputMoveVector();
+  const magnitude = Math.hypot(move.x, move.y);
+  const dash = input.dash || keys.has("ShiftLeft") || keys.has("ShiftRight");
+  const speed = getCharacterMoveSpeed(receiver, dash, magnitude > 0.08, step);
+  if (magnitude > 0.08) {
+    moveCharacterWithCollisions(receiver, (move.x / magnitude) * speed * step, (move.y / magnitude) * speed * step);
+  }
+  return distance(receiver, transition.ballStart) <= receiver.r + 14;
 }
 
 function beginFreeThrows(owner, shooter) {
@@ -1229,9 +1267,14 @@ function finishFreeThrowAttempt(ball) {
   }
 
   state.freeThrow = null;
-  const pickup = getReboundPickupSpot(hoop);
+  const pickup = ball.made ? getGoalLineInboundSpot(hoop) : getReboundPickupSpot(hoop);
   if (ball.made) {
-    beginPossessionTransition(ball.owner === "player" ? "cpu" : "player", pickup.x, pickup.y, { receiverSpot: pickup });
+    const nextPossession = ball.owner === "player" ? "cpu" : "player";
+    beginPossessionTransition(nextPossession, pickup.x, pickup.y, {
+      receiverSpot: pickup,
+      inbound: true,
+      manualReceiver: nextPossession === "player",
+    });
   } else {
     beginRebound(ball.owner, pickup, true);
   }
@@ -1300,7 +1343,13 @@ function updateRebound(step) {
   resolveCharacterCollisions();
   if (!arrived && rebound.elapsed < rebound.maxDuration) return true;
 
-  setCharacterPosition(winner, rebound.pickup);
+  finishRebound(rebound, winner, rebound.pickup);
+  return true;
+}
+
+function finishRebound(rebound, winner, pickup) {
+  setCharacterPosition(winner, pickup);
+  state.ball = null;
   state.rebound = null;
   state.recoveryBall = null;
   state.possession = rebound.owner;
@@ -1314,7 +1363,6 @@ function updateRebound(step) {
   state.cpuPassCooldown = 0.45;
   state.shotClock = rebound.owner === rebound.shootingOwner ? 14 : 24;
   showMessage(rebound.owner === rebound.shootingOwner ? "Offensive rebound" : "Rebound");
-  return true;
 }
 
 function addScore(owner, points) {
@@ -1349,7 +1397,7 @@ function beginScoreCelebration(ball, hoop) {
   const type = ball.finish === "dunk" ? "dunk" : "three";
   const color = ball.owner === "player" ? "#f5bf45" : "#4aa3df";
   const points = type === "three" ? 3 : 2;
-  const pickup = getReboundPickupSpot(hoop);
+  const pickup = getGoalLineInboundSpot(hoop);
   const nextPossession = ball.owner === "player" ? "cpu" : "player";
   const receiverKey = getNearestReceiverKey(nextPossession, pickup);
   const targets = getStartSpots(nextPossession);
@@ -1363,6 +1411,7 @@ function beginScoreCelebration(ball, hoop) {
     pickup,
     receiverKey,
     targets,
+    manualReceiver: nextPossession === "player",
   };
   state.scoreFx = { x: hoop.x, y: hoop.y, type, color, life: 0.7, duration: 0.7 };
   state.ball = null;
@@ -1383,31 +1432,42 @@ function beginScoreCelebration(ball, hoop) {
 function updateScoreCelebration(dt) {
   const celebrationState = state.celebration;
   if (!celebrationState) return false;
-  moveTransitionCharacters(celebrationState.targets, dt, celebrationState.receiverKey);
-  const receiver = getCharacterByKey(celebrationState.receiverKey);
-  state.recoveryBall = { x: receiver.x + 18, y: receiver.y - 18 };
+  moveTransitionCharacters(
+    celebrationState.targets,
+    dt,
+    celebrationState.receiverKey,
+    celebrationState.manualReceiver ? celebrationState.receiverKey : null
+  );
+  state.recoveryBall = { ...celebrationState.pickup };
   resolveCharacterCollisions();
   celebrationState.remaining -= dt;
   updateParticles(dt);
   if (celebrationState.remaining > 0) return true;
   const { nextPossession, pickup, receiverKey, targets } = celebrationState;
   clearScoreCelebration();
-  beginPossessionTransition(nextPossession, pickup.x, pickup.y, { receiverKey, receiverSpot: pickup, targets });
+  beginPossessionTransition(nextPossession, pickup.x, pickup.y, {
+    receiverKey,
+    receiverSpot: pickup,
+    targets,
+    inbound: true,
+    manualReceiver: nextPossession === "player",
+  });
   return true;
 }
 
-function moveTransitionCharacters(targets, step, receiverKey) {
+function moveTransitionCharacters(targets, step, receiverKey, skipKey = null) {
+  const move = (member, key) => (key === skipKey ? false : moveTransitionCharacter(member, targets[key], step));
   const arrived = {
-    player: moveTransitionCharacter(player, targets.player, step),
-    teammate: moveTransitionCharacter(teammate, targets.teammate, step),
-    playerWing: moveTransitionCharacter(playerWing, targets.playerWing, step),
-    playerBig: moveTransitionCharacter(playerBig, targets.playerBig, step),
-    playerCorner: moveTransitionCharacter(playerCorner, targets.playerCorner, step),
-    defender: moveTransitionCharacter(defender, targets.defender, step),
-    cpuMate: moveTransitionCharacter(cpuMate, targets.cpuMate, step),
-    cpuWing: moveTransitionCharacter(cpuWing, targets.cpuWing, step),
-    cpuBig: moveTransitionCharacter(cpuBig, targets.cpuBig, step),
-    cpuCorner: moveTransitionCharacter(cpuCorner, targets.cpuCorner, step),
+    player: move(player, "player"),
+    teammate: move(teammate, "teammate"),
+    playerWing: move(playerWing, "playerWing"),
+    playerBig: move(playerBig, "playerBig"),
+    playerCorner: move(playerCorner, "playerCorner"),
+    defender: move(defender, "defender"),
+    cpuMate: move(cpuMate, "cpuMate"),
+    cpuWing: move(cpuWing, "cpuWing"),
+    cpuBig: move(cpuBig, "cpuBig"),
+    cpuCorner: move(cpuCorner, "cpuCorner"),
   };
   return Boolean(arrived[receiverKey]);
 }
@@ -2288,7 +2348,11 @@ function updateShotClock(step) {
   const nextPossession = state.possession === "player" ? "cpu" : "player";
   const inboundSpot = getShotClockInboundSpot(handler);
   showMessage("24 seconds - sideline");
-  beginPossessionTransition(nextPossession, inboundSpot.x, inboundSpot.y, { receiverSpot: inboundSpot });
+  beginPossessionTransition(nextPossession, inboundSpot.x, inboundSpot.y, {
+    receiverSpot: inboundSpot,
+    inbound: true,
+    manualReceiver: nextPossession === "player",
+  });
   return true;
 }
 
@@ -3249,9 +3313,12 @@ function updateBall(dt) {
         beginScoreCelebration(b, hoop);
         return;
       }
-      const pickup = getReboundPickupSpot(hoop);
-      beginPossessionTransition(b.owner === "player" ? "cpu" : "player", pickup.x, pickup.y, {
-        receiverSpot: pickup,
+      const nextPossession = b.owner === "player" ? "cpu" : "player";
+      const inboundSpot = getGoalLineInboundSpot(hoop);
+      beginPossessionTransition(nextPossession, inboundSpot.x, inboundSpot.y, {
+        receiverSpot: inboundSpot,
+        inbound: true,
+        manualReceiver: nextPossession === "player",
       });
     } else {
       state.shake = 4;
@@ -3267,8 +3334,7 @@ function beginMissBounce(ball, hoop) {
   const lateral = Math.random() * 2 - 1;
   const depth = 88 + Math.random() * 142;
   const spread = lateral * (72 + Math.random() * 112);
-  ball.missHandled = true;
-  ball.missBounce = {
+  const bounce = {
     startX: ball.targetX,
     startY: ball.targetY,
     endX: clamp(hoop.x + insideDirection * depth + lateral * 52, 44, court.w - 44),
@@ -3277,6 +3343,31 @@ function beginMissBounce(ball, hoop) {
     duration: 0.3 + Math.random() * 0.26,
     elapsed: 0,
   };
+  if (!ball.freeThrow) {
+    const catchProgress = 0.7;
+    const catchPoint = getMissBouncePosition(bounce, catchProgress);
+    const maxReach = DASH_MOVE_SPEED * getMoveSpeedScale() * bounce.duration * catchProgress * 0.9;
+    const catcher = getActiveCharacters()
+      .map((member) => {
+        const owner = isPlayerTeam(member) ? "player" : "cpu";
+        return {
+          member,
+          owner,
+          key: owner === "player" ? getPlayerKey(member) : getCpuKey(member),
+          distance: distance(member, catchPoint.ground),
+        };
+      })
+      .filter((candidate) => candidate.distance <= maxReach + candidate.member.r * 1.25)
+      .sort((a, b) => a.distance - b.distance)[0];
+    if (catcher) {
+      bounce.airCatch = {
+        ...catcher,
+        progress: catchProgress,
+        ground: catchPoint.ground,
+      };
+    }
+  }
+  ball.missBounce = bounce;
   state.shake = Math.max(state.shake, 6);
 }
 
@@ -3284,9 +3375,23 @@ function updateMissBounce(ball, dt) {
   const bounce = ball.missBounce;
   bounce.elapsed += dt;
   const progress = clamp(bounce.elapsed / bounce.duration, 0, 1);
-  const ease = 1 - Math.pow(1 - progress, 2);
-  ball.x = bounce.startX + (bounce.endX - bounce.startX) * ease;
-  ball.y = bounce.startY + (bounce.endY - bounce.startY) * ease - Math.sin(progress * Math.PI) * bounce.height;
+  const position = getMissBouncePosition(bounce, progress);
+  ball.x = position.x;
+  ball.y = position.y;
+  moveMissBouncePlayers(bounce, dt);
+  resolveCharacterCollisions();
+
+  if (bounce.airCatch && progress >= bounce.airCatch.progress) {
+    const catcher = getCharacterByKey(bounce.airCatch.key);
+    if (distance(catcher, bounce.airCatch.ground) <= catcher.r * 1.65) {
+      finishRebound(
+        { shootingOwner: ball.owner, owner: bounce.airCatch.owner, winnerKey: bounce.airCatch.key },
+        catcher,
+        { x: catcher.x, y: catcher.y }
+      );
+      return;
+    }
+  }
   if (progress < 1) return;
 
   ball.x = bounce.endX;
@@ -3297,6 +3402,34 @@ function updateMissBounce(ball, dt) {
     return;
   }
   beginRebound(ball.owner, { x: ball.x, y: ball.y });
+}
+
+function getMissBouncePosition(bounce, progress) {
+  const ease = 1 - Math.pow(1 - progress, 2);
+  const x = bounce.startX + (bounce.endX - bounce.startX) * ease;
+  const groundY = bounce.startY + (bounce.endY - bounce.startY) * ease;
+  return { x, y: groundY - Math.sin(progress * Math.PI) * bounce.height, ground: { x, y: groundY } };
+}
+
+function moveMissBouncePlayers(bounce, step) {
+  const catcherKey = bounce.airCatch?.key;
+  for (const member of getActiveCharacters()) {
+    const owner = isPlayerTeam(member) ? "player" : "cpu";
+    const key = owner === "player" ? getPlayerKey(member) : getCpuKey(member);
+    if (key === catcherKey) {
+      moveCharacterToward(member, bounce.airCatch.ground, step, true, 2);
+      continue;
+    }
+    const dx = member.x - bounce.endX;
+    const dy = member.y - bounce.endY;
+    const length = Math.hypot(dx, dy) || 1;
+    const ring = owner === bounce.airCatch?.owner ? 76 : 112;
+    const support = {
+      x: clamp(bounce.endX + (dx / length) * ring, 44, court.w - 44),
+      y: clamp(bounce.endY + (dy / length) * ring, 44, court.h - 44),
+    };
+    moveCharacterToward(member, support, step, false, 8);
+  }
 }
 
 function getScoreMessage(b) {
@@ -3334,7 +3467,7 @@ function updateHud() {
   if (gameClockEl) gameClockEl.textContent = formatGameClock(state.gameClock);
   if (shotClockEl) shotClockEl.textContent = state.shotClock < 5 ? state.shotClock.toFixed(1) : Math.ceil(state.shotClock).toString();
   if (staminaReadout) {
-    const staminaTarget = state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
+    const staminaTarget = getControlledPlayerCharacter();
     staminaReadout.textContent = `${Math.round((staminaTarget.stamina ?? 1) * 100)}%`;
   }
   passButton.textContent = state.possession === "cpu" ? "SWITCH" : "PASS";
@@ -3351,6 +3484,11 @@ function updateHud() {
   if (state.rebound) {
     shotReadout.textContent = "Rebound";
     spaceReadout.textContent = "Loose ball";
+    return;
+  }
+  if (state.possessionTransition?.inbound) {
+    shotReadout.textContent = "Inbound";
+    spaceReadout.textContent = state.possessionTransition.manualReceiver ? "Move to receive" : "CPU inbound";
     return;
   }
   const focus = state.possession === "player" ? getPlayerHandler() : getCpuHandler();
@@ -3522,7 +3660,7 @@ function drawHoop(hoop = court.rightHoop, side = "right") {
 }
 
 function drawControlMarker() {
-  const controlled = state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
+  const controlled = getControlledPlayerCharacter();
   ctx.save();
   ctx.strokeStyle = state.possession === "cpu" && !state.manualDefense ? "#99d6c2" : "#fff7e0";
   ctx.lineWidth = 4;
@@ -3659,8 +3797,8 @@ function getCharacterFacingTarget(p, isPlayer) {
 }
 
 function getDribbleCadence(pose = { motion: 0 }) {
-  // Running adds a little urgency, but a real dribble rhythm should not double in tempo.
-  return 1.2 + Math.min(0.32, pose.motion * 0.34);
+  // Keep one steady rhythm regardless of speed, turn angle, or running animation.
+  return 1.18;
 }
 
 function getDribbleBounce(p, pose = getCharacterAnimationPose(p)) {
