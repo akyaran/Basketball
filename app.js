@@ -56,7 +56,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.10";
+const APP_VERSION = "0.10.11";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -1104,6 +1104,16 @@ function updateInboundTransition(transition, step) {
       transition.phase = "ready";
       transition.readyElapsed = 0;
       showMessage(transition.nextPossession === "player" ? "Press PASS" : "CPU inbound");
+      if (transition.receiverKey === transition.inbounderKey) {
+        finishPossessionTransitionAtSpots(transition.nextPossession, transition.inbounderKey);
+        showMessage(transition.nextPossession === "player" ? "Your ball" : "CPU ball");
+        return true;
+      }
+      // A queued player pass or a CPU inbound begins on the exact pickup frame.
+      if (transition.passRequested || transition.nextPossession === "cpu") {
+        launchInboundPass(transition);
+        return true;
+      }
     }
   } else {
     transition.readyElapsed += step;
@@ -1113,7 +1123,7 @@ function updateInboundTransition(transition, step) {
       showMessage(transition.nextPossession === "player" ? "Your ball" : "CPU ball");
       return true;
     }
-    if (transition.passRequested || (transition.nextPossession === "cpu" && transition.readyElapsed >= 0.18)) {
+    if (transition.passRequested) {
       launchInboundPass(transition);
       return true;
     }
@@ -1382,6 +1392,7 @@ function beginRebound(shootingOwner, pickup, deadBall = false) {
   const winner = candidates[0];
   if (!winner) return;
   const supportTargets = {};
+  const supportSlots = {};
   getActiveCharacters().forEach((member, index) => {
     const owner = isPlayerTeam(member) ? "player" : "cpu";
     const key = owner === "player" ? getPlayerKey(member) : getCpuKey(member);
@@ -1393,6 +1404,11 @@ function beginRebound(shootingOwner, pickup, deadBall = false) {
     supportTargets[key] = {
       x: clamp(pickup.x + (dx / length) * ring, 48, court.w - 48),
       y: clamp(pickup.y + (dy / length) * ring, 48, court.h - 48),
+    };
+    supportSlots[key] = {
+      angle: Math.atan2(dy, dx),
+      ring,
+      phase: index * 1.71,
     };
   });
   state.ball = null;
@@ -1406,6 +1422,7 @@ function beginRebound(shootingOwner, pickup, deadBall = false) {
     maxDuration: deadBall ? 1.1 : 0.9,
     deadBall,
     supportTargets,
+    supportSlots,
   };
 }
 
@@ -1418,8 +1435,10 @@ function updateRebound(step) {
   for (const member of getActiveCharacters()) {
     const owner = isPlayerTeam(member) ? "player" : "cpu";
     const key = owner === "player" ? getPlayerKey(member) : getCpuKey(member);
-    if (key !== rebound.winnerKey && rebound.supportTargets[key]) {
-      moveCharacterToward(member, rebound.supportTargets[key], step, false, 6);
+    if (key !== rebound.winnerKey && rebound.supportSlots[key]) {
+      const target = getReboundSupportTarget(rebound, member, key);
+      rebound.supportTargets[key] = target;
+      moveCharacterToward(member, target, step, false, 6);
     }
   }
   state.recoveryBall = { x: rebound.pickup.x, y: rebound.pickup.y };
@@ -1428,6 +1447,18 @@ function updateRebound(step) {
 
   finishRebound(rebound, winner, rebound.pickup);
   return true;
+}
+
+function getReboundSupportTarget(rebound, member, key) {
+  const slot = rebound.supportSlots[key];
+  const owner = isPlayerTeam(member) ? "player" : "cpu";
+  const chasingOffense = owner === rebound.shootingOwner;
+  const radius = slot.ring + Math.sin(state.time / 260 + slot.phase) * (chasingOffense ? 18 : 14);
+  const angle = slot.angle + Math.sin(state.time / 330 + slot.phase) * 0.26;
+  return {
+    x: clamp(rebound.pickup.x + Math.cos(angle) * radius, 48, court.w - 48),
+    y: clamp(rebound.pickup.y + Math.sin(angle) * radius, 48, court.h - 48),
+  };
 }
 
 function finishRebound(rebound, winner, pickup) {

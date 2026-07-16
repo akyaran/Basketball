@@ -353,15 +353,47 @@ const fieldShotBounced = Boolean(state.ball?.missBounce);
 updateBall(1);
 const fieldReboundOwner = state.rebound?.owner;
 updateRebound(2);
-globalThis.testResult.fieldRebound = { bounced: fieldShotBounced, winner: fieldReboundOwner, possession: state.possession, shotClock: state.shotClock };
+globalThis.testResult.fieldRebound = {
+  bounced: fieldShotBounced,
+  winner: fieldReboundOwner,
+  possession: state.possession,
+  shotClock: state.shotClock,
+};
 setPossession("player");
+beginRebound("player", { x: court.rightHoop.x - 52, y: court.rightHoop.y });
+const activeRebound = state.rebound;
+const reboundSupport = getActiveCharacters().find((member) => {
+  const key = isPlayerTeam(member) ? getPlayerKey(member) : getCpuKey(member);
+  return key !== activeRebound.winnerKey;
+});
+const reboundSupportKey = isPlayerTeam(reboundSupport) ? getPlayerKey(reboundSupport) : getCpuKey(reboundSupport);
+const reboundSupportStart = { x: reboundSupport.x, y: reboundSupport.y };
+const reboundSupportTargetStart = { ...activeRebound.supportTargets[reboundSupportKey] };
+state.time += 300;
+updateRebound(0.12);
+const reboundSupportTargetEnd = activeRebound.supportTargets[reboundSupportKey];
+globalThis.testResult.reboundMotion = {
+  moved: distance(reboundSupport, reboundSupportStart),
+  targetShift: distance(reboundSupportTargetEnd, reboundSupportTargetStart),
+};
+state.rebound = null;
+state.recoveryBall = null;
 state.ball = null;
 state.possessionTransition = null;
 state.shotClock = 0.01;
 player.y = 180;
 updateShotClock(0.1);
-globalThis.testResult.shotClockInbound = { possession: state.possessionTransition?.nextPossession, x: state.possessionTransition?.ballStart.x, y: state.possessionTransition?.ballStart.y };
-state.possessionTransition = null;
+const shotClockInboundTransition = state.possessionTransition;
+const cpuInbounder = getCharacterByKey(shotClockInboundTransition.inbounderKey);
+setCharacterPosition(cpuInbounder, shotClockInboundTransition.ballStart);
+updatePossessionTransition(0.016);
+globalThis.testResult.shotClockInbound = {
+  possession: shotClockInboundTransition.nextPossession,
+  x: shotClockInboundTransition.ballStart.x,
+  y: shotClockInboundTransition.ballStart.y,
+  immediatePass: state.possessionTransition === null && state.passBall?.inbound === true,
+};
+state.passBall = null;
 setPossession("cpu");
 state.ball = null;
 state.shotClock = 0.01;
@@ -384,17 +416,17 @@ const defendersStillMoving = getActiveCharacters().some((member) => {
   if (key === manualInbound.inbounderKey || key === manualInbound.receiverKey) return false;
   return distance(member, manualInbound.targets[key]) > 8;
 });
-setCharacterPosition(manualInbounder, manualInbound.ballStart);
-updatePossessionTransition(0.016);
 updateHud();
-const inboundReady = manualInbound.phase;
 const inboundActionsLimited = shootButton.disabled && screenButton.disabled && !passButton.disabled && passButton.textContent === "PASS";
 passPlayerBall();
+const passQueuedBeforePickup = manualInbound.passRequested;
+setCharacterPosition(manualInbounder, manualInbound.ballStart);
+updatePossessionTransition(0.016);
 globalThis.testResult.manualInbound = {
   manual: manualInbound.manualReceiver,
   moved: distance(manualReceiver, manualInboundStart) > 0.1,
   separateRoles: manualInbound.inbounderKey !== manualInbound.receiverKey,
-  readyWithoutDefense: inboundReady === "ready" && defendersStillMoving,
+  readyWithoutDefense: passQueuedBeforePickup && defendersStillMoving,
   actionsLimited: inboundActionsLimited,
   transitionCleared: state.possessionTransition === null,
   passInbound: state.passBall?.inbound,
@@ -590,9 +622,12 @@ assert.ok([14, 24].includes(result.freeThrowRebound.shotClock));
 assert.equal(result.fieldRebound.possession, result.fieldRebound.winner);
 assert.equal(result.fieldRebound.bounced, true);
 assert.ok([14, 24].includes(result.fieldRebound.shotClock));
+assert.ok(result.reboundMotion.moved > 0.1);
+assert.ok(result.reboundMotion.targetShift > 0.1);
 assert.equal(result.shotClockInbound.possession, "cpu");
 assert.equal(result.shotClockInbound.x, 771);
 assert.equal(result.shotClockInbound.y, 60);
+assert.equal(result.shotClockInbound.immediatePass, true);
 assert.equal(result.manualInbound.manual, true);
 assert.equal(result.manualInbound.moved, true);
 assert.equal(result.manualInbound.separateRoles, true);
