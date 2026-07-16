@@ -378,11 +378,30 @@ input.moveY = inboundDy / inboundLength;
 updatePossessionTransition(0.12);
 input.moveX = 0;
 input.moveY = 0;
+const manualInbounder = getCharacterByKey(manualInbound.inbounderKey);
+const defendersStillMoving = getActiveCharacters().some((member) => {
+  const key = isPlayerTeam(member) ? getPlayerKey(member) : getCpuKey(member);
+  if (key === manualInbound.inbounderKey || key === manualInbound.receiverKey) return false;
+  return distance(member, manualInbound.targets[key]) > 8;
+});
+setCharacterPosition(manualInbounder, manualInbound.ballStart);
+updatePossessionTransition(0.016);
+updateHud();
+const inboundReady = manualInbound.phase;
+const inboundActionsLimited = shootButton.disabled && screenButton.disabled && !passButton.disabled && passButton.textContent === "PASS";
+passPlayerBall();
 globalThis.testResult.manualInbound = {
   manual: manualInbound.manualReceiver,
   moved: distance(manualReceiver, manualInboundStart) > 0.1,
+  separateRoles: manualInbound.inbounderKey !== manualInbound.receiverKey,
+  readyWithoutDefense: inboundReady === "ready" && defendersStillMoving,
+  actionsLimited: inboundActionsLimited,
+  transitionCleared: state.possessionTransition === null,
+  passInbound: state.passBall?.inbound,
+  passTarget: state.passBall?.nextHandler,
+  receiverKey: manualInbound.receiverKey,
 };
-state.possessionTransition = null;
+state.passBall = null;
 setPossession("player");
 player.x = 1310;
 player.y = 410;
@@ -464,7 +483,13 @@ state.ball = {
   made: true, quality: 0.8, points: 2, scored: false,
 };
 updateBall(1);
-globalThis.testResult.twoPointNoCelebration = { active: Boolean(state.celebration), transition: Boolean(state.possessionTransition) };
+globalThis.testResult.twoPointNoCelebration = {
+  active: Boolean(state.celebration),
+  transition: Boolean(state.possessionTransition),
+  inbound: state.possessionTransition?.inbound,
+  phase: state.possessionTransition?.phase,
+  ballStart: state.possessionTransition?.ballStart,
+};
 settings.stealSuccess = 0;
 const lowSteal = { chance: getStealSuccessChance(58), zone: getStealTimingZoneForDistance(48).size };
 settings.stealSuccess = 1;
@@ -570,6 +595,12 @@ assert.equal(result.shotClockInbound.x, 771);
 assert.equal(result.shotClockInbound.y, 60);
 assert.equal(result.manualInbound.manual, true);
 assert.equal(result.manualInbound.moved, true);
+assert.equal(result.manualInbound.separateRoles, true);
+assert.equal(result.manualInbound.readyWithoutDefense, true);
+assert.equal(result.manualInbound.actionsLimited, true);
+assert.equal(result.manualInbound.transitionCleared, true);
+assert.equal(result.manualInbound.passInbound, true);
+assert.equal(result.manualInbound.passTarget, result.manualInbound.receiverKey);
 assert.equal(result.airCatch.caught, true);
 assert.equal(result.airCatch.possession, "player");
 assert.ok(result.characterMotion.motion > 0.5);
@@ -591,6 +622,10 @@ assert.equal(result.dunkCelebration.owner, "cpu");
 assert.equal(result.dunkCelebration.active, true);
 assert.equal(result.twoPointNoCelebration.active, false);
 assert.equal(result.twoPointNoCelebration.transition, true);
+assert.equal(result.twoPointNoCelebration.inbound, true);
+assert.equal(result.twoPointNoCelebration.phase, "collecting");
+assert.equal(result.twoPointNoCelebration.ballStart.x, 1488);
+assert.equal(result.twoPointNoCelebration.ballStart.y, 410);
 assert.ok(result.stealSetting.highSteal.chance > result.stealSetting.lowSteal.chance);
 assert.ok(result.stealSetting.highSteal.zone > result.stealSetting.lowSteal.zone);
 console.log("Turnover, steal, defense, screen-play, and collision smoke test passed");

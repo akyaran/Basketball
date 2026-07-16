@@ -56,7 +56,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.9";
+const APP_VERSION = "0.10.10";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -400,6 +400,14 @@ function updateCamera(force = false) {
 }
 
 function getCameraFocus(bounds = getCameraBounds()) {
+  if (state.possessionTransition?.inbound) {
+    const transition = state.possessionTransition;
+    const receiver = getCharacterByKey(transition.receiverKey);
+    return {
+      x: transition.ballStart.x * 0.58 + receiver.x * 0.42,
+      y: transition.ballStart.y * 0.58 + receiver.y * 0.42,
+    };
+  }
   if (state.ball) return { x: state.ball.x, y: state.ball.y };
   if (state.passBall) return { x: state.passBall.x, y: state.passBall.y };
   if (state.recoveryBall) return { x: state.recoveryBall.x, y: state.recoveryBall.y };
@@ -504,6 +512,7 @@ function getPlayerControlledDefender() {
 
 function getControlledPlayerCharacter() {
   if (state.possessionTransition?.manualReceiver) return getCharacterByKey(state.possessionTransition.receiverKey);
+  if (state.passBall?.inbound && state.passBall.owner === "player") return getCharacterByKey(state.passBall.nextHandler);
   return state.possession === "player" ? getPlayerHandler() : getPlayerControlledDefender();
 }
 
@@ -974,18 +983,28 @@ function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   clearPlayerScreen();
   state.freeThrow = null;
   state.rebound = null;
-  const receiverKey = options.receiverKey || getNearestReceiverKey(nextPossession, { x: ballX, y: ballY });
+  const inbound = Boolean(options.inbound);
+  const inbounderKey = inbound
+    ? (options.inbounderKey || getNearestReceiverKey(nextPossession, { x: ballX, y: ballY }))
+    : null;
+  const receiverKey = inbound
+    ? getInboundReceiverKey(nextPossession, inbounderKey, { x: ballX, y: ballY })
+    : (options.receiverKey || getNearestReceiverKey(nextPossession, { x: ballX, y: ballY }));
   const spots = Object.fromEntries(
     Object.entries(options.targets || getStartSpots(nextPossession)).map(([key, spot]) => [key, { ...spot }])
   );
-  if (options.receiverSpot) spots[receiverKey] = options.receiverSpot;
+  if (!inbound && options.receiverSpot) spots[receiverKey] = options.receiverSpot;
   const receiver = spots[receiverKey];
 
   state.possessionTransition = {
     nextPossession,
     receiverKey,
-    inbound: Boolean(options.inbound),
-    manualReceiver: Boolean(options.manualReceiver && nextPossession === "player"),
+    inbounderKey,
+    inbound,
+    manualReceiver: Boolean(inbound && nextPossession === "player" && receiverKey !== inbounderKey),
+    phase: inbound ? "collecting" : "recovering",
+    passRequested: false,
+    readyElapsed: 0,
     elapsed: 0,
     maxDuration: options.maxDuration || 5.2,
     targets: spots,
@@ -1010,6 +1029,14 @@ function getNearestReceiverKey(possession, point) {
   return possession === "player" ? getPlayerKey(receiver) : getCpuKey(receiver);
 }
 
+function getInboundReceiverKey(possession, inbounderKey, point) {
+  const team = possession === "player" ? getPlayerTeam() : getCpuTeam();
+  const getKey = possession === "player" ? getPlayerKey : getCpuKey;
+  const candidates = team.filter((member) => getKey(member) !== inbounderKey);
+  const receiver = nearestOf(point, candidates);
+  return receiver ? getKey(receiver) : inbounderKey;
+}
+
 function getReboundPickupSpot(hoop) {
   const insideDir = hoop === court.rightHoop ? -1 : 1;
   return {
@@ -1028,6 +1055,8 @@ function getGoalLineInboundSpot(hoop) {
 function updatePossessionTransition(step) {
   const transition = state.possessionTransition;
   if (!transition) return false;
+
+  if (transition.inbound) return updateInboundTransition(transition, step);
 
   transition.elapsed += step;
   let receiverArrived;
@@ -1059,6 +1088,40 @@ function updatePossessionTransition(step) {
   return true;
 }
 
+function updateInboundTransition(transition, step) {
+  transition.elapsed += step;
+  const inbounder = getCharacterByKey(transition.inbounderKey);
+  const skipKeys = [transition.inbounderKey];
+  if (transition.manualReceiver) skipKeys.push(transition.receiverKey);
+  moveTransitionCharacters(transition.targets, step, transition.receiverKey, skipKeys);
+  if (transition.manualReceiver) moveManualInboundReceiver(transition, step);
+
+  if (transition.phase === "collecting") {
+    const collected = moveCharacterToward(inbounder, transition.ballStart, step, false, 5);
+    state.recoveryBall = { ...transition.ballStart };
+    if (collected || transition.elapsed >= transition.maxDuration) {
+      if (!collected) setCharacterPosition(inbounder, transition.ballStart);
+      transition.phase = "ready";
+      transition.readyElapsed = 0;
+      showMessage(transition.nextPossession === "player" ? "Press PASS" : "CPU inbound");
+    }
+  } else {
+    transition.readyElapsed += step;
+    state.recoveryBall = { x: inbounder.x + 16, y: inbounder.y - 16 };
+    if (transition.receiverKey === transition.inbounderKey) {
+      finishPossessionTransitionAtSpots(transition.nextPossession, transition.inbounderKey);
+      showMessage(transition.nextPossession === "player" ? "Your ball" : "CPU ball");
+      return true;
+    }
+    if (transition.passRequested || (transition.nextPossession === "cpu" && transition.readyElapsed >= 0.18)) {
+      launchInboundPass(transition);
+      return true;
+    }
+  }
+  resolveCharacterCollisions();
+  return true;
+}
+
 function moveManualInboundReceiver(transition, step) {
   const receiver = getCharacterByKey(transition.receiverKey);
   const move = getInputMoveVector();
@@ -1068,7 +1131,29 @@ function moveManualInboundReceiver(transition, step) {
   if (magnitude > 0.08) {
     moveCharacterWithCollisions(receiver, (move.x / magnitude) * speed * step, (move.y / magnitude) * speed * step);
   }
-  return distance(receiver, transition.ballStart) <= receiver.r + 14;
+}
+
+function requestPlayerInboundPass() {
+  const transition = state.possessionTransition;
+  if (!transition?.inbound || transition.nextPossession !== "player") return false;
+  transition.passRequested = true;
+  if (transition.phase === "ready") launchInboundPass(transition);
+  else showMessage("Pass queued");
+  return true;
+}
+
+function launchInboundPass(transition) {
+  if (!transition || state.possessionTransition !== transition || transition.phase !== "ready") return false;
+  const inbounder = getCharacterByKey(transition.inbounderKey);
+  const receiver = getCharacterByKey(transition.receiverKey);
+  const owner = transition.nextPossession;
+  finishPossessionTransitionAtSpots(owner, transition.inbounderKey);
+  startPass(owner, inbounder, receiver, transition.receiverKey, {
+    duration: 0.3,
+    inbound: true,
+    message: owner === "player" ? "Inbound pass" : "CPU inbound",
+  });
+  return true;
 }
 
 function beginFreeThrows(owner, shooter) {
@@ -1271,9 +1356,7 @@ function finishFreeThrowAttempt(ball) {
   if (ball.made) {
     const nextPossession = ball.owner === "player" ? "cpu" : "player";
     beginPossessionTransition(nextPossession, pickup.x, pickup.y, {
-      receiverSpot: pickup,
       inbound: true,
-      manualReceiver: nextPossession === "player",
     });
   } else {
     beginRebound(ball.owner, pickup, true);
@@ -1399,9 +1482,9 @@ function beginScoreCelebration(ball, hoop) {
   const points = type === "three" ? 3 : 2;
   const pickup = getGoalLineInboundSpot(hoop);
   const nextPossession = ball.owner === "player" ? "cpu" : "player";
-  const receiverKey = getNearestReceiverKey(nextPossession, pickup);
+  const inbounderKey = getNearestReceiverKey(nextPossession, pickup);
   const targets = getStartSpots(nextPossession);
-  targets[receiverKey] = { ...pickup };
+  targets[inbounderKey] = { ...pickup };
   state.celebration = {
     type,
     owner: ball.owner,
@@ -1409,9 +1492,8 @@ function beginScoreCelebration(ball, hoop) {
     duration: 0.7,
     nextPossession,
     pickup,
-    receiverKey,
+    inbounderKey,
     targets,
-    manualReceiver: nextPossession === "player",
   };
   state.scoreFx = { x: hoop.x, y: hoop.y, type, color, life: 0.7, duration: 0.7 };
   state.ball = null;
@@ -1435,28 +1517,26 @@ function updateScoreCelebration(dt) {
   moveTransitionCharacters(
     celebrationState.targets,
     dt,
-    celebrationState.receiverKey,
-    celebrationState.manualReceiver ? celebrationState.receiverKey : null
+    celebrationState.inbounderKey
   );
   state.recoveryBall = { ...celebrationState.pickup };
   resolveCharacterCollisions();
   celebrationState.remaining -= dt;
   updateParticles(dt);
   if (celebrationState.remaining > 0) return true;
-  const { nextPossession, pickup, receiverKey, targets } = celebrationState;
+  const { nextPossession, pickup, inbounderKey, targets } = celebrationState;
   clearScoreCelebration();
   beginPossessionTransition(nextPossession, pickup.x, pickup.y, {
-    receiverKey,
-    receiverSpot: pickup,
+    inbounderKey,
     targets,
     inbound: true,
-    manualReceiver: nextPossession === "player",
   });
   return true;
 }
 
 function moveTransitionCharacters(targets, step, receiverKey, skipKey = null) {
-  const move = (member, key) => (key === skipKey ? false : moveTransitionCharacter(member, targets[key], step));
+  const skipped = new Set(Array.isArray(skipKey) ? skipKey : skipKey ? [skipKey] : []);
+  const move = (member, key) => (skipped.has(key) ? false : moveTransitionCharacter(member, targets[key], step));
   const arrived = {
     player: move(player, "player"),
     teammate: move(teammate, "teammate"),
@@ -1856,7 +1936,9 @@ function launchFinish(owner, kind, quality) {
 }
 
 function passPlayerBall() {
-  if (state.paused || state.celebration) return;
+  if (state.paused) return;
+  if (requestPlayerInboundPass()) return;
+  if (state.celebration) return;
   if (state.possession === "cpu") {
     cyclePlayerDefender();
     return;
@@ -2026,6 +2108,7 @@ function startPass(owner, from, to, nextHandler, options = {}) {
   state.passBall = {
     owner,
     nextHandler,
+    inbound: Boolean(options.inbound),
     startX,
     startY,
     targetX,
@@ -2349,9 +2432,7 @@ function updateShotClock(step) {
   const inboundSpot = getShotClockInboundSpot(handler);
   showMessage("24 seconds - sideline");
   beginPossessionTransition(nextPossession, inboundSpot.x, inboundSpot.y, {
-    receiverSpot: inboundSpot,
     inbound: true,
-    manualReceiver: nextPossession === "player",
   });
   return true;
 }
@@ -3316,9 +3397,7 @@ function updateBall(dt) {
       const nextPossession = b.owner === "player" ? "cpu" : "player";
       const inboundSpot = getGoalLineInboundSpot(hoop);
       beginPossessionTransition(nextPossession, inboundSpot.x, inboundSpot.y, {
-        receiverSpot: inboundSpot,
         inbound: true,
-        manualReceiver: nextPossession === "player",
       });
     } else {
       state.shake = 4;
@@ -3464,13 +3543,19 @@ function updateParticles(dt) {
 }
 
 function updateHud() {
+  const inbound = state.possessionTransition?.inbound ? state.possessionTransition : null;
   if (gameClockEl) gameClockEl.textContent = formatGameClock(state.gameClock);
   if (shotClockEl) shotClockEl.textContent = state.shotClock < 5 ? state.shotClock.toFixed(1) : Math.ceil(state.shotClock).toString();
   if (staminaReadout) {
     const staminaTarget = getControlledPlayerCharacter();
     staminaReadout.textContent = `${Math.round((staminaTarget.stamina ?? 1) * 100)}%`;
   }
-  passButton.textContent = state.possession === "cpu" ? "SWITCH" : "PASS";
+  shootButton.disabled = Boolean(inbound);
+  screenButton.disabled = Boolean(inbound);
+  passButton.disabled = Boolean(inbound && inbound.nextPossession !== "player");
+  passButton.textContent = inbound
+    ? inbound.nextPossession === "player" ? "PASS" : "WAIT"
+    : state.possession === "cpu" ? "SWITCH" : "PASS";
   if (state.gameOver) {
     spaceReadout.textContent = state.playerScore === state.cpuScore ? "Draw" : state.playerScore > state.cpuScore ? "You win" : "CPU wins";
     shotReadout.textContent = "Game over";
@@ -3486,9 +3571,11 @@ function updateHud() {
     spaceReadout.textContent = "Loose ball";
     return;
   }
-  if (state.possessionTransition?.inbound) {
+  if (inbound) {
     shotReadout.textContent = "Inbound";
-    spaceReadout.textContent = state.possessionTransition.manualReceiver ? "Move to receive" : "CPU inbound";
+    spaceReadout.textContent = inbound.phase === "collecting"
+      ? "Collecting ball"
+      : inbound.nextPossession === "player" ? "PASS to receive" : "CPU inbound";
     return;
   }
   const focus = state.possession === "player" ? getPlayerHandler() : getCpuHandler();

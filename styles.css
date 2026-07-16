@@ -303,6 +303,11 @@ button {
   transform: scale(0.97);
 }
 
+.action-pad button:disabled {
+  opacity: 0.32;
+  transform: none;
+}
+
 .meter {
   position: fixed;
   z-index: 4;
