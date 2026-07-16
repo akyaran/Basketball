@@ -56,7 +56,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.12";
+const APP_VERSION = "0.10.13";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -785,7 +785,7 @@ function getCharacterMoveSpeed(p, wantsDash, moving, step) {
   return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale() * screenedScale * stealRecoveryScale;
 }
 
-function moveCharacterToward(p, target, step, wantsDash = false, stopDistance = 3) {
+function moveCharacterToward(p, target, step, wantsDash = false, stopDistance = 3, bounds = null) {
   const dx = target.x - p.x;
   const dy = target.y - p.y;
   const d = Math.hypot(dx, dy);
@@ -797,11 +797,11 @@ function moveCharacterToward(p, target, step, wantsDash = false, stopDistance = 
     return true;
   }
   const move = Math.min(d - stopDistance, speed * step);
-  moveCharacterWithCollisions(p, (dx / d) * move, (dy / d) * move);
+  moveCharacterWithCollisions(p, (dx / d) * move, (dy / d) * move, bounds);
   return distance(p, target) <= stopDistance + 1;
 }
 
-function moveCharacterWithCollisions(p, dx, dy) {
+function moveCharacterWithCollisions(p, dx, dy, bounds = null) {
   const length = Math.hypot(dx, dy);
   if (length <= 0.0001) return;
   const stepSize = clamp(p.r * 0.38, 4, 9);
@@ -829,14 +829,27 @@ function moveCharacterWithCollisions(p, dx, dy) {
         nextY = other.y + (oy / d) * minDistance;
       }
     }
-    p.x = clamp(nextX, 80, court.w - 80);
-    p.y = clamp(nextY, 72, court.h - 72);
+    p.x = clamp(nextX, bounds?.minX ?? 80, bounds?.maxX ?? court.w - 80);
+    p.y = clamp(nextY, bounds?.minY ?? 72, bounds?.maxY ?? court.h - 72);
   }
 }
 
 function getCharacterCollisionDistance(a, b) {
   const screenPadding = isActivePlayerScreener(a) || isActivePlayerScreener(b) ? 24 : 8;
   return a.r + b.r + screenPadding;
+}
+
+function getCharacterCourtBounds(character) {
+  const transition = state.possessionTransition;
+  if (transition?.inbound && getCharacterByKey(transition.inbounderKey) === character) {
+    return {
+      minX: court.lineInset + 8,
+      maxX: court.w - court.lineInset - 8,
+      minY: 72,
+      maxY: court.h - 72,
+    };
+  }
+  return { minX: 80, maxX: court.w - 80, minY: 72, maxY: court.h - 72 };
 }
 
 function registerMovingScreenContact(a, b) {
@@ -1097,7 +1110,10 @@ function updateInboundTransition(transition, step) {
   if (transition.manualReceiver) moveManualInboundReceiver(transition, step);
 
   if (transition.phase === "collecting") {
-    const collected = moveCharacterToward(inbounder, transition.ballStart, step, false, 5);
+    const collected = moveCharacterToward(inbounder, transition.ballStart, step, false, 5, {
+      minX: court.lineInset + 8,
+      maxX: court.w - court.lineInset - 8,
+    });
     state.recoveryBall = { ...transition.ballStart };
     if (collected || transition.elapsed >= transition.maxDuration) {
       if (!collected) setCharacterPosition(inbounder, transition.ballStart);
@@ -3082,8 +3098,9 @@ function resolveCharacterCollisions() {
     }
   }
   for (const character of characters) {
-    character.x = clamp(character.x, 80, court.w - 80);
-    character.y = clamp(character.y, 72, court.h - 72);
+    const bounds = getCharacterCourtBounds(character);
+    character.x = clamp(character.x, bounds.minX, bounds.maxX);
+    character.y = clamp(character.y, bounds.minY, bounds.maxY);
   }
 }
 

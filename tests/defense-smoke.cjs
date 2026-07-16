@@ -351,7 +351,7 @@ state.ball = {
 updateBall(1);
 const fieldShotBounced = Boolean(state.ball?.missBounce);
 updateBall(1);
-const fieldReboundOwner = state.rebound?.owner;
+const fieldReboundOwner = state.rebound?.owner || state.possession;
 updateRebound(2);
 globalThis.testResult.fieldRebound = {
   bounced: fieldShotBounced,
@@ -359,6 +359,27 @@ globalThis.testResult.fieldRebound = {
   possession: state.possession,
   shotClock: state.shotClock,
 };
+setPossession("player");
+const modeBeforeGoalLineInbound = settings.players;
+settings.players = "1v1";
+const rightGoalLine = getGoalLineInboundSpot(court.rightHoop);
+setPossession("cpu");
+setCharacterPosition(player, { x: 1370, y: rightGoalLine.y });
+beginPossessionTransition("player", rightGoalLine.x, rightGoalLine.y, { inbound: true });
+const rightGoalLineTransition = state.possessionTransition;
+for (let stepIndex = 0; stepIndex < 20 && state.possessionTransition; stepIndex += 1) updatePossessionTransition(0.1);
+const rightGoalLineInbound = { elapsed: rightGoalLineTransition.elapsed, complete: state.possessionTransition === null, x: player.x };
+const leftGoalLine = getGoalLineInboundSpot(court.leftHoop);
+setPossession("cpu");
+setCharacterPosition(player, { x: 172, y: leftGoalLine.y });
+beginPossessionTransition("player", leftGoalLine.x, leftGoalLine.y, { inbound: true });
+const leftGoalLineTransition = state.possessionTransition;
+for (let stepIndex = 0; stepIndex < 20 && state.possessionTransition; stepIndex += 1) updatePossessionTransition(0.1);
+globalThis.testResult.goalLineInbound = {
+  right: rightGoalLineInbound,
+  left: { elapsed: leftGoalLineTransition.elapsed, complete: state.possessionTransition === null, x: player.x },
+};
+settings.players = modeBeforeGoalLineInbound;
 setPossession("player");
 beginRebound("player", { x: court.rightHoop.x - 52, y: court.rightHoop.y });
 const activeRebound = state.rebound;
@@ -631,6 +652,12 @@ assert.ok([14, 24].includes(result.freeThrowRebound.shotClock));
 assert.equal(result.fieldRebound.possession, result.fieldRebound.winner);
 assert.equal(result.fieldRebound.bounced, true);
 assert.ok([14, 24].includes(result.fieldRebound.shotClock));
+assert.equal(result.goalLineInbound.right.complete, true);
+assert.equal(result.goalLineInbound.left.complete, true);
+assert.ok(result.goalLineInbound.right.elapsed < 2);
+assert.ok(result.goalLineInbound.left.elapsed < 2);
+assert.ok(result.goalLineInbound.right.x > 1442);
+assert.ok(result.goalLineInbound.left.x < 100);
 assert.ok(result.reboundMotion.moved > 0.1);
 assert.ok(result.reboundMotion.targetShift > 0.1);
 assert.equal(result.shotClockInbound.possession, "cpu");
