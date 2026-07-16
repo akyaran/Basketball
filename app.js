@@ -56,7 +56,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.11";
+const APP_VERSION = "0.10.12";
 const SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
 const STEAL_MAX_DISTANCE = 88;
@@ -1516,19 +1516,21 @@ function beginScoreCelebration(ball, hoop) {
   const inbounderKey = getNearestReceiverKey(nextPossession, pickup);
   const targets = getStartSpots(nextPossession);
   targets[inbounderKey] = { ...pickup };
+  // Keep the highlight on screen, but begin the next possession immediately.
+  // This lets the inbounder recover the ball while the game clock remains paused.
+  beginPossessionTransition(nextPossession, pickup.x, pickup.y, {
+    inbounderKey,
+    targets,
+    inbound: true,
+  });
   state.celebration = {
     type,
     owner: ball.owner,
     remaining: 0.7,
     duration: 0.7,
-    nextPossession,
-    pickup,
-    inbounderKey,
-    targets,
   };
   state.scoreFx = { x: hoop.x, y: hoop.y, type, color, life: 0.7, duration: 0.7 };
   state.ball = null;
-  state.recoveryBall = { ...pickup };
   clearTimingAction();
   clearGameplayInput();
   state.shake = Math.max(state.shake, type === "dunk" ? 18 : 11);
@@ -1545,23 +1547,9 @@ function beginScoreCelebration(ball, hoop) {
 function updateScoreCelebration(dt) {
   const celebrationState = state.celebration;
   if (!celebrationState) return false;
-  moveTransitionCharacters(
-    celebrationState.targets,
-    dt,
-    celebrationState.inbounderKey
-  );
-  state.recoveryBall = { ...celebrationState.pickup };
-  resolveCharacterCollisions();
   celebrationState.remaining -= dt;
-  updateParticles(dt);
   if (celebrationState.remaining > 0) return true;
-  const { nextPossession, pickup, inbounderKey, targets } = celebrationState;
   clearScoreCelebration();
-  beginPossessionTransition(nextPossession, pickup.x, pickup.y, {
-    inbounderKey,
-    targets,
-    inbound: true,
-  });
   return true;
 }
 
@@ -2365,7 +2353,12 @@ function update(dt) {
     return;
   }
   if (state.celebration) {
+    // Highlight presentation pauses the clocks, not the made-basket inbound.
+    state.time += dt * 1000;
     updateScoreCelebration(dt);
+    updatePossessionTransition(dt);
+    updatePassBall(dt);
+    updateParticles(dt);
     updateHud();
     return;
   }

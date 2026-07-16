@@ -495,8 +495,17 @@ state.ball = {
 };
 updateBall(1);
 const threeClock = { game: state.gameClock, shot: state.shotClock };
+const threeInboundTransition = state.possessionTransition;
+const threeInbounder = getCharacterByKey(threeInboundTransition.inbounderKey);
+const threeInboundStart = { x: threeInbounder.x, y: threeInbounder.y };
 update(0.35);
-const threePaused = { game: state.gameClock, shot: state.shotClock, active: Boolean(state.celebration) };
+const threePaused = {
+  game: state.gameClock,
+  shot: state.shotClock,
+  active: Boolean(state.celebration),
+  inboundStarted: Boolean(threeInboundTransition?.inbound),
+  collectorMoved: distance(threeInbounder, threeInboundStart) > 0.1,
+};
 update(0.36);
 globalThis.testResult.threeCelebration = { type: state.scoreFx?.type || "ended", paused: threePaused, transition: Boolean(state.possessionTransition), initialClock: threeClock };
 setPossession("cpu");
@@ -651,6 +660,8 @@ assert.equal(result.characterMotion.shootingSprite, true);
 assert.equal(result.threeCelebration.paused.active, true);
 assert.equal(result.threeCelebration.paused.game, result.threeCelebration.initialClock.game);
 assert.equal(result.threeCelebration.paused.shot, result.threeCelebration.initialClock.shot);
+assert.equal(result.threeCelebration.paused.inboundStarted, true);
+assert.equal(result.threeCelebration.paused.collectorMoved, true);
 assert.equal(result.threeCelebration.transition, true);
 assert.equal(result.dunkCelebration.type, "dunk");
 assert.equal(result.dunkCelebration.owner, "cpu");
