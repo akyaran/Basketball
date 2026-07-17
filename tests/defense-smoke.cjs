@@ -86,6 +86,13 @@ const positionBuilds = POSITION_ORDER.map((position) => ({
 }));
 const maxedRatings = Object.fromEntries(Object.keys(RATING_LABELS).map((rating) => [rating, 100]));
 const normalizedMaxedRatings = normalizeRatingsToBudget(maxedRatings, POSITION_DEFAULTS.PG);
+const rightPaintBounds = getPaintBounds(court.rightHoop);
+const leftPaintBounds = getPaintBounds(court.leftHoop);
+applyRosterSnapshot({
+  player: [{ position: "C", ratings: { ...LEGACY_CENTER_DEFAULTS } }],
+  cpu: [{ position: "C", ratings: { ...LEGACY_CENTER_DEFAULTS } }],
+});
+const migratedCenter = { ...playerRoster.find((member) => member.position === "C").ratings };
 globalThis.testResult = {
   rightHomes,
   leftHomes,
@@ -99,6 +106,33 @@ globalThis.testResult = {
   normalizedMaxedTotal: Object.values(normalizedMaxedRatings).reduce((sum, value) => sum + value, 0),
   pgBudgetLimit: getRatingBudgetLimit(playerRoster[0], "shot"),
   pgShot: POSITION_DEFAULTS.PG.shot,
+  centerBalance: {
+    finish: POSITION_DEFAULTS.C.finish,
+    resistance: POSITION_DEFAULTS.C.resistance,
+    rebound: POSITION_DEFAULTS.C.rebound,
+    migrated: migratedCenter,
+  },
+  paintBounds: { right: rightPaintBounds, left: leftPaintBounds },
+};
+setPossession("player");
+player.x = (rightPaintBounds.minX + rightPaintBounds.maxX) / 2;
+player.y = court.rightHoop.y;
+teammate.x = player.x;
+teammate.y = player.y - 40;
+state.offensivePaintSeconds[getPlayerKey(teammate)] = 2.2;
+const paintExitTarget = getThreeSecondSafeTarget(teammate, "player", { x: court.rightHoop.x, y: court.rightHoop.y });
+state.offensivePaintSeconds = {};
+updateOffensiveThreeSeconds(2.1);
+const paintWarning = state.message;
+const paintViolation = updateOffensiveThreeSeconds(0.91);
+globalThis.testResult.threeSeconds = {
+  exitTargetOutside: !isPointInPaint(paintExitTarget, court.rightHoop),
+  warning: paintWarning,
+  violation: paintViolation,
+  nextPossession: state.possessionTransition?.nextPossession,
+  inbound: state.possessionTransition?.inbound,
+  inboundX: state.possessionTransition?.ballStart.x,
+  inboundY: state.possessionTransition?.ballStart.y,
 };
 setPossession("cpu");
 player.x = 700;
@@ -587,6 +621,21 @@ assert.ok(result.positionBuilds.every((build, index, builds) => index === 0 || b
 assert.ok(Math.abs((result.positionBuilds[4].size / result.positionBuilds[0].size) ** 2 - 2) < 0.03);
 assert.equal(result.normalizedMaxedTotal, 480);
 assert.equal(result.pgBudgetLimit, result.pgShot);
+assert.equal(result.centerBalance.finish, 88);
+assert.equal(result.centerBalance.resistance, 86);
+assert.equal(result.centerBalance.rebound, 100);
+assert.equal(JSON.stringify(result.centerBalance.migrated), JSON.stringify({ shot: 24, finish: 88, speed: 44, pass: 38, resistance: 86, handling: 24, rebound: 100, stamina: 76 }));
+assert.equal(result.paintBounds.right.minX, 1267);
+assert.equal(result.paintBounds.right.maxX, 1518);
+assert.equal(result.paintBounds.left.minX, 24);
+assert.equal(result.paintBounds.left.maxX, 275);
+assert.equal(result.threeSeconds.exitTargetOutside, true);
+assert.equal(result.threeSeconds.warning, "Paint: 2 seconds");
+assert.equal(result.threeSeconds.violation, true);
+assert.equal(result.threeSeconds.nextPossession, "cpu");
+assert.equal(result.threeSeconds.inbound, true);
+assert.equal(result.threeSeconds.inboundX, result.paintBounds.right.minX);
+assert.ok([60, 760].includes(result.threeSeconds.inboundY));
 assert.equal(result.pauseState.active, true);
 assert.equal(result.pauseState.gameClock, 100);
 assert.equal(result.pauseState.shotClock, 17);

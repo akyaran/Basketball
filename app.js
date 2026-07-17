@@ -68,7 +68,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.11.4";
+const APP_VERSION = "0.11.5";
 const SETTINGS_KEY = "basketball-settings-v2";
 const LEGACY_SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
@@ -159,6 +159,8 @@ const state = {
   timingStartContest: 0,
   timingZone: { start: 0.38, end: 0.62, center: 0.5, size: 0.24 },
   stealAttempt: null,
+  offensivePaintSeconds: {},
+  paintWarningKey: null,
   shotCharge: 0,
   aimVector: { x: 0, y: -1 },
   particles: [],
@@ -180,6 +182,10 @@ const court = {
   threeRadius: 389,
   threeCornerY: 361,
 };
+const PAINT_LANE_WIDTH = 211;
+const PAINT_LANE_LENGTH = 251;
+const OFFENSIVE_THREE_SECONDS = 3;
+const AI_PAINT_EXIT_SECONDS = 1.85;
 
 versionBadge.textContent = `v${APP_VERSION}`;
 if (titleVersion) titleVersion.textContent = `v${APP_VERSION}`;
@@ -378,8 +384,9 @@ const POSITION_DEFAULTS = {
   SG: { shot: 96, finish: 70, speed: 78, pass: 50, resistance: 40, handling: 78, rebound: 20, stamina: 48 },
   SF: { shot: 70, finish: 82, speed: 72, pass: 48, resistance: 74, handling: 60, rebound: 34, stamina: 40 },
   PF: { shot: 38, finish: 94, speed: 62, pass: 38, resistance: 96, handling: 34, rebound: 86, stamina: 32 },
-  C: { shot: 20, finish: 100, speed: 42, pass: 30, resistance: 100, handling: 20, rebound: 100, stamina: 68 },
+  C: { shot: 24, finish: 88, speed: 44, pass: 38, resistance: 86, handling: 24, rebound: 100, stamina: 76 },
 };
+const LEGACY_CENTER_DEFAULTS = { shot: 20, finish: 100, speed: 42, pass: 30, resistance: 100, handling: 20, rebound: 100, stamina: 68 };
 const ROLE_LINEUPS = {
   "1v1": ["SF"],
   "2v2": ["PG", "C"],
@@ -780,7 +787,12 @@ function applyRosterSnapshot(snapshot) {
       Object.keys(RATING_LABELS).forEach((rating) => {
         ratings[rating] = readRating(entry?.ratings?.[rating], defaults[rating]);
       });
-      member.ratings = normalizeRatingsToBudget(ratings, defaults);
+      const isLegacyCenterDefault = member.position === "C" && Object.keys(RATING_LABELS).every(
+        (rating) => ratings[rating] === LEGACY_CENTER_DEFAULTS[rating]
+      );
+      member.ratings = isLegacyCenterDefault
+        ? { ...POSITION_DEFAULTS.C }
+        : normalizeRatingsToBudget(ratings, defaults);
     });
   };
   applyTeam(playerRoster, snapshot?.player);
@@ -974,7 +986,7 @@ function getNearRimFactor(member, hoop = getAttackHoopForCharacter(member)) {
 
 function getContestResistance(member, hoop = getAttackHoopForCharacter(member)) {
   const resistance = clamp((getRating(member, "resistance") - 40) / 60, 0, 1);
-  return resistance * 0.45 * getNearRimFactor(member, hoop);
+  return resistance * 0.36 * getNearRimFactor(member, hoop);
 }
 
 function getShotZoneScale(member) {
@@ -986,7 +998,7 @@ function getShotQualityScale(member) {
 }
 
 function getFinishQualityScale(member) {
-  return getRatingScale(member, "finish", 0.72, 1.16);
+  return getRatingScale(member, "finish", 0.72, 1.12);
 }
 
 function getPassSpeedScale(member) {
@@ -1158,6 +1170,7 @@ function setPossession(possession) {
   state.passBall = null;
   state.freeThrow = null;
   state.rebound = null;
+  resetOffensivePaintClocks();
   state.playerHandler = getDefaultHandlerKey("player");
   state.manualDefense = false;
   state.playerDefenderKey = getDefaultHandlerKey("player");
@@ -1239,8 +1252,110 @@ function setCharacterPosition(p, spot) {
   resetCharacterAnimation(p);
 }
 
+function resetOffensivePaintClocks() {
+  state.offensivePaintSeconds = {};
+  state.paintWarningKey = null;
+}
+
+function getPaintBounds(hoop) {
+  const minX = hoop === court.rightHoop
+    ? court.w - court.lineInset - PAINT_LANE_LENGTH
+    : court.lineInset;
+  return {
+    minX,
+    maxX: minX + PAINT_LANE_LENGTH,
+    minY: hoop.y - PAINT_LANE_WIDTH / 2,
+    maxY: hoop.y + PAINT_LANE_WIDTH / 2,
+  };
+}
+
+function isPointInPaint(point, hoop) {
+  const bounds = getPaintBounds(hoop);
+  return point.x >= bounds.minX && point.x <= bounds.maxX && point.y >= bounds.minY && point.y <= bounds.maxY;
+}
+
+function getOffensiveMemberKey(owner, member) {
+  return owner === "player" ? getPlayerKey(member) : getCpuKey(member);
+}
+
+function getOffensivePaintSeconds(owner, member) {
+  return state.offensivePaintSeconds[getOffensiveMemberKey(owner, member)] || 0;
+}
+
+function getPaintExitTarget(member, owner) {
+  const hoop = getAttackHoop(owner);
+  const bounds = getPaintBounds(hoop);
+  const clearance = member.r + 18;
+  const candidates = [
+    {
+      x: hoop === court.rightHoop ? bounds.minX - clearance : bounds.maxX + clearance,
+      y: clamp(member.y, bounds.minY - clearance, bounds.maxY + clearance),
+    },
+    { x: member.x, y: bounds.minY - clearance },
+    { x: member.x, y: bounds.maxY + clearance },
+  ];
+  return candidates.sort((a, b) => distance(member, a) - distance(member, b))[0];
+}
+
+function getThreeSecondSafeTarget(member, owner, target) {
+  const paintSeconds = getOffensivePaintSeconds(owner, member);
+  if (paintSeconds >= AI_PAINT_EXIT_SECONDS || (paintSeconds >= 1.45 && isPointInPaint(target, getAttackHoop(owner)))) {
+    return getPaintExitTarget(member, owner);
+  }
+  return target;
+}
+
+function isOffenseInFrontcourt(owner) {
+  const handler = owner === "player" ? getPlayerHandler() : getCpuHandler();
+  return owner === "player" ? handler.x >= court.w * 0.5 : handler.x <= court.w * 0.5;
+}
+
+function getPaintViolationInboundSpot(owner, offender) {
+  const hoop = getAttackHoop(owner);
+  const bounds = getPaintBounds(hoop);
+  return {
+    x: hoop === court.rightHoop ? bounds.minX : bounds.maxX,
+    y: offender.y < hoop.y ? court.lineInset + 36 : court.h - court.lineInset - 36,
+  };
+}
+
+function updateOffensiveThreeSeconds(step) {
+  if (!state.started || state.gameOver || state.possessionTransition || state.freeThrow || state.rebound || state.ball || state.passBall?.inbound || !isOffenseInFrontcourt(state.possession)) {
+    resetOffensivePaintClocks();
+    return false;
+  }
+
+  const owner = state.possession;
+  const hoop = getAttackHoop(owner);
+  const offense = owner === "player" ? getPlayerTeam() : getCpuTeam();
+  for (const member of offense) {
+    const key = getOffensiveMemberKey(owner, member);
+    if (!isPointInPaint(member, hoop)) {
+      state.offensivePaintSeconds[key] = 0;
+      if (state.paintWarningKey === key) state.paintWarningKey = null;
+      continue;
+    }
+
+    state.offensivePaintSeconds[key] = (state.offensivePaintSeconds[key] || 0) + step;
+    if (owner === "player" && member === getPlayerHandler() && state.offensivePaintSeconds[key] >= 2 && state.paintWarningKey !== key) {
+      state.paintWarningKey = key;
+      showMessage("Paint: 2 seconds");
+    }
+    if (state.offensivePaintSeconds[key] < OFFENSIVE_THREE_SECONDS) continue;
+
+    const inboundSpot = getPaintViolationInboundSpot(owner, member);
+    const nextPossession = owner === "player" ? "cpu" : "player";
+    resetOffensivePaintClocks();
+    beginPossessionTransition(nextPossession, inboundSpot.x, inboundSpot.y, { inbound: true });
+    showMessage("Offensive 3 seconds");
+    return true;
+  }
+  return false;
+}
+
 function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   clearPlayerScreen();
+  resetOffensivePaintClocks();
   state.freeThrow = null;
   state.rebound = null;
   const inbound = Boolean(options.inbound);
@@ -1876,6 +1991,7 @@ function finishPossessionTransitionAtSpots(possession, receiverKey = null) {
   state.cpuBurst = 1;
   state.cpuPassCooldown = 0.75;
   state.shotClock = 24;
+  resetOffensivePaintClocks();
   state.ball = null;
   state.shotCharge = 0;
   state.timingActive = false;
@@ -2182,7 +2298,7 @@ function launchFinish(owner, kind, quality) {
   const contest = clamp(1 - (distance(offense, defense) - 48) / 88, 0, 1) * getDefenderFacingFactor(offense, defense) * (1 - getContestResistance(offense, hoop));
   const made = kind === "dunk"
     ? contest < 0.82 && quality > 0.72
-    : quality - contest * 0.38 > 0.58;
+    : quality - contest * 0.42 > 0.58;
   const missSide = (Math.random() - 0.5) * 52;
   const missDepth = owner === "player" ? -22 : 22;
   const target = made
@@ -2499,6 +2615,7 @@ function commitLiveTurnover(possession, interceptor, message) {
   state.cpuBurst = 1;
   state.cpuPassCooldown = 0.5;
   state.shotClock = 24;
+  resetOffensivePaintClocks();
   state.shotCharge = 0;
   state.timingStartContest = 0;
   state.dunkFx = null;
@@ -2677,6 +2794,11 @@ function update(dt) {
 
   const passWasIntercepted = updatePassBall(step);
   if (passWasIntercepted) {
+    updateParticles(step);
+    updateHud();
+    return;
+  }
+  if (updateOffensiveThreeSeconds(step)) {
     updateParticles(step);
     updateHud();
     return;
@@ -3052,9 +3174,14 @@ function getTwoThreeShellSpot(home, handler, hoop, index) {
 
 function moveOffBallPlayer(agent, handler, step, index = 0) {
   if (!isTwoOnTwo() || agent === handler) return;
+  if (getOffensivePaintSeconds("player", agent) >= AI_PAINT_EXIT_SECONDS) {
+    if (isActivePlayerScreener(agent)) clearPlayerScreen();
+    moveCharacterToward(agent, getPaintExitTarget(agent, "player"), step, false, 4);
+    return;
+  }
   if (movePlayerScreener(agent, handler, step)) return;
   if (isFiveOnFive()) {
-    const target = getFiveOnFiveSpacingSpot(agent, getPlayerTeam(), "player", handler);
+    const target = getThreeSecondSafeTarget(agent, "player", getFiveOnFiveSpacingSpot(agent, getPlayerTeam(), "player", handler));
     moveCharacterToward(agent, target, step, false, 4);
     return;
   }
@@ -3066,7 +3193,7 @@ function moveOffBallPlayer(agent, handler, step, index = 0) {
     x: clamp(handler.x + 98 + roam * 62 - index * 22, 230, hoop.x - 92),
     y: clamp(hoop.y + lane * (132 + index * 42) + lift * 38, 92, court.h - 92),
   };
-  moveCharacterToward(agent, target, step, false, 4);
+  moveCharacterToward(agent, getThreeSecondSafeTarget(agent, "player", target), step, false, 4);
 }
 
 function updateCpuOffense(step) {
@@ -3125,7 +3252,7 @@ function updateCpuOffense(step) {
   }
 
   const cpuWantsDash = state.cpuMoveStyle === "drive" && rimDistance > 145 && space > 74;
-  moveCharacterToward(handler, target, step, cpuWantsDash, 4);
+  moveCharacterToward(handler, getThreeSecondSafeTarget(handler, "cpu", target), step, cpuWantsDash, 4);
 
   if (isTwoOnTwo()) moveCpuOffBall(step, handler);
   updatePlayerHelpDefense(step, handler);
@@ -3152,7 +3279,7 @@ function updateCpuOffense(step) {
 function moveCpuOffBall(step, handler) {
   const offBalls = getCpuOffBalls();
   offBalls.forEach((offBall, index) => {
-    const target = getCpuSpacingSpot(offBall, handler, index);
+    const target = getThreeSecondSafeTarget(offBall, "cpu", getCpuSpacingSpot(offBall, handler, index));
     moveCharacterToward(offBall, target, step, false, 4);
   });
 }
@@ -3187,7 +3314,7 @@ function getFiveOnFiveSpacingSpot(agent, team, owner, handler) {
     SG: { depth: 350, lane: -224 },
     SF: { depth: 350, lane: 224 },
     PF: { depth: 168, lane: -316 },
-    C: { depth: 118, lane: 0 },
+    C: { depth: 214, lane: 0 },
   };
   const index = Math.max(0, POSITION_ORDER.indexOf(agent.position));
   const handlerIndex = POSITION_ORDER.indexOf(handler.position);
@@ -4109,11 +4236,9 @@ function drawFallbackCourt() {
 }
 
 function drawPaint(hoop, side) {
-  const laneW = 211;
-  const laneL = 251;
-  const x = side === "right" ? court.w - court.lineInset - laneL : court.lineInset;
-  ctx.strokeRect(x, hoop.y - laneW / 2, laneL, laneW);
-  const ftX = side === "right" ? x : x + laneL;
+  const x = side === "right" ? court.w - court.lineInset - PAINT_LANE_LENGTH : court.lineInset;
+  ctx.strokeRect(x, hoop.y - PAINT_LANE_WIDTH / 2, PAINT_LANE_LENGTH, PAINT_LANE_WIDTH);
+  const ftX = side === "right" ? x : x + PAINT_LANE_LENGTH;
   ctx.beginPath();
   ctx.arc(ftX, hoop.y, 79, Math.PI * 0.5, Math.PI * 1.5, side === "left");
   ctx.stroke();
@@ -4690,7 +4815,7 @@ window.addEventListener("resize", resize);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=0.11.4", { updateViaCache: "none" })
+    navigator.serviceWorker.register("sw.js?v=0.11.5", { updateViaCache: "none" })
       .then((registration) => registration.update())
       .catch(() => {});
   });
