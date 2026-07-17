@@ -68,7 +68,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.11.1";
+const APP_VERSION = "0.11.2";
 const SETTINGS_KEY = "basketball-settings-v2";
 const LEGACY_SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
@@ -4168,6 +4168,7 @@ function drawCharacter(p, isPlayer) {
     ctx.restore();
 
     if (isBallCarrier) drawCarriedBall(p, angle, visualPose);
+    drawPositionBadge(p, isPlayer);
     return;
   }
 
@@ -4192,6 +4193,35 @@ function drawCharacter(p, isPlayer) {
   if (hasLiveBall) {
     drawCarriedBall(p, angle, visualPose);
   }
+  drawPositionBadge(p, isPlayer);
+}
+
+function drawPositionBadge(p, isPlayer) {
+  const label = p.position || "";
+  if (!label) return;
+
+  // Keep the role readable when the camera pulls back for 5v5.
+  const screenScale = Math.max(state.scale, 0.01);
+  const fontSize = clamp(12 / screenScale, 12, 24);
+  const paddingX = 5 / screenScale;
+  const badgeHeight = 18 / screenScale;
+  const y = p.y - p.r * 2.08 - 9 / screenScale;
+
+  ctx.save();
+  ctx.font = `700 ${fontSize}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const measured = ctx.measureText(label);
+  const badgeWidth = (measured?.width || label.length * fontSize * 0.7) + paddingX * 2;
+  ctx.fillStyle = isPlayer ? "rgba(42, 30, 13, 0.9)" : "rgba(8, 29, 43, 0.9)";
+  ctx.strokeStyle = isPlayer ? "#f5bf45" : "#75c8f5";
+  ctx.lineWidth = Math.max(1.25 / screenScale, 1);
+  roundRect(p.x - badgeWidth * 0.5, y - badgeHeight * 0.5, badgeWidth, badgeHeight, 5 / screenScale);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#ffffff";
+  ctx.fillText(label, p.x, y + 0.5 / screenScale);
+  ctx.restore();
 }
 
 function isCurrentBallCarrier(p, isPlayer) {
