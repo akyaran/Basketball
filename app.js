@@ -68,7 +68,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.11.0";
+const APP_VERSION = "0.11.1";
 const SETTINGS_KEY = "basketball-settings-v2";
 const LEGACY_SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
