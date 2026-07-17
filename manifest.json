@@ -1,7 +1,7 @@
 {
-  "name": "Basketball 1v1 Prototype",
-  "short_name": "Basket 1v1",
-  "description": "iPad-first 1v1 basketball shooting prototype.",
+  "name": "Basketball Prototype",
+  "short_name": "Basketball",
+  "description": "iPad-first basketball prototype with 1v1 to 5v5 modes.",
   "start_url": "./",
   "display": "standalone",
   "orientation": "landscape",

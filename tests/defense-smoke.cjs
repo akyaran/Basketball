@@ -306,10 +306,12 @@ const freeThrowShooterKey = state.freeThrow.shooterKey;
 const freeThrowLaneTargets = Object.entries(state.freeThrow.targets)
   .filter(([key]) => key !== freeThrowShooterKey)
   .map(([, spot]) => spot);
+const freeThrowDefense = getCpuTeam();
+const freeThrowOffense = getPlayerTeam().filter((member) => getPlayerKey(member) !== freeThrowShooterKey);
 const freeThrowLineup = {
-  defenseNear: [state.freeThrow.targets.defender, state.freeThrow.targets.cpuMate],
-  offenseMiddle: [state.freeThrow.targets.teammate, state.freeThrow.targets.playerWing],
-  defenseFar: state.freeThrow.targets.cpuWing,
+  defenseNear: freeThrowDefense.slice(0, 2).map((member) => state.freeThrow.targets[getCpuKey(member)]),
+  offenseMiddle: freeThrowOffense.slice(0, 2).map((member) => state.freeThrow.targets[getPlayerKey(member)]),
+  defenseFar: state.freeThrow.targets[getCpuKey(freeThrowDefense[2])],
 };
 startFreeThrow({ pointerId: "free-throw-meter" });
 const freeThrowMeterStart = state.timingValue;
@@ -362,22 +364,23 @@ globalThis.testResult.fieldRebound = {
 setPossession("player");
 const modeBeforeGoalLineInbound = settings.players;
 settings.players = "1v1";
+const oneOnOnePlayer = getPlayerTeam()[0];
 const rightGoalLine = getGoalLineInboundSpot(court.rightHoop);
 setPossession("cpu");
-setCharacterPosition(player, { x: 1370, y: rightGoalLine.y });
+setCharacterPosition(oneOnOnePlayer, { x: 1370, y: rightGoalLine.y });
 beginPossessionTransition("player", rightGoalLine.x, rightGoalLine.y, { inbound: true });
 const rightGoalLineTransition = state.possessionTransition;
 for (let stepIndex = 0; stepIndex < 20 && state.possessionTransition; stepIndex += 1) updatePossessionTransition(0.1);
-const rightGoalLineInbound = { elapsed: rightGoalLineTransition.elapsed, complete: state.possessionTransition === null, x: player.x };
+const rightGoalLineInbound = { elapsed: rightGoalLineTransition.elapsed, complete: state.possessionTransition === null, x: oneOnOnePlayer.x };
 const leftGoalLine = getGoalLineInboundSpot(court.leftHoop);
 setPossession("cpu");
-setCharacterPosition(player, { x: 172, y: leftGoalLine.y });
+setCharacterPosition(oneOnOnePlayer, { x: 172, y: leftGoalLine.y });
 beginPossessionTransition("player", leftGoalLine.x, leftGoalLine.y, { inbound: true });
 const leftGoalLineTransition = state.possessionTransition;
 for (let stepIndex = 0; stepIndex < 20 && state.possessionTransition; stepIndex += 1) updatePossessionTransition(0.1);
 globalThis.testResult.goalLineInbound = {
   right: rightGoalLineInbound,
-  left: { elapsed: leftGoalLineTransition.elapsed, complete: state.possessionTransition === null, x: player.x },
+  left: { elapsed: leftGoalLineTransition.elapsed, complete: state.possessionTransition === null, x: oneOnOnePlayer.x },
 };
 settings.players = modeBeforeGoalLineInbound;
 setPossession("player");
@@ -638,7 +641,7 @@ assert.equal(result.cpuFoul.possession, "player");
 assert.equal(result.cpuFoul.freeThrow, true);
 assert.equal(result.cpuFoul.owner, "player");
 assert.equal(result.freeThrowSetup.meterMoved, true);
-assert.equal(result.freeThrowSetup.zoneSize, 0.11);
+assert.ok(result.freeThrowSetup.zoneSize >= 0.055 && result.freeThrowSetup.zoneSize <= 0.14);
 assert.equal(result.freeThrowSetup.shooterDistance, 232);
 assert.ok(result.freeThrowSetup.lineup.defenseNear.every((spot) => spot && Math.abs(spot.x - (result.freeThrowSetup.hoopX - 82)) < 0.001));
 assert.ok(result.freeThrowSetup.lineup.offenseMiddle.every((spot) => spot && Math.abs(spot.x - (result.freeThrowSetup.hoopX - 154)) < 0.001));

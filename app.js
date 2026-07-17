@@ -32,6 +32,18 @@ const gameTimeSelect = document.getElementById("gameTimeSelect");
 const presetSelect = document.getElementById("presetSelect");
 const loadPresetButton = document.getElementById("loadPresetButton");
 const savePresetButton = document.getElementById("savePresetButton");
+const gameSettingsTab = document.getElementById("gameSettingsTab");
+const playersSettingsTab = document.getElementById("playersSettingsTab");
+const dataSettingsTab = document.getElementById("dataSettingsTab");
+const gameSettingsPage = document.getElementById("gameSettingsPage");
+const playersSettingsPage = document.getElementById("playersSettingsPage");
+const dataSettingsPage = document.getElementById("dataSettingsPage");
+const rosterTeamControl = document.getElementById("rosterTeamControl");
+const rosterPositionControl = document.getElementById("rosterPositionControl");
+const rosterEditor = document.getElementById("rosterEditor");
+const exportSettingsButton = document.getElementById("exportSettingsButton");
+const importSettingsButton = document.getElementById("importSettingsButton");
+const importSettingsInput = document.getElementById("importSettingsInput");
 const defenseValue = document.getElementById("defenseValue");
 const distanceValue = document.getElementById("distanceValue");
 const meterSpeedValue = document.getElementById("meterSpeedValue");
@@ -56,9 +68,12 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.10.13";
-const SETTINGS_KEY = "basketball-1v1-settings";
+const APP_VERSION = "0.11.0";
+const SETTINGS_KEY = "basketball-settings-v2";
+const LEGACY_SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
+const SETTINGS_FILE_FORMAT = "basketball-settings";
+const SETTINGS_SCHEMA_VERSION = 1;
 const STEAL_MAX_DISTANCE = 88;
 const STEAL_CONTACT_DISTANCE = 68;
 const DEFAULT_SETTINGS = {
@@ -339,6 +354,47 @@ const cpuCorner = {
 const playerRoster = [player, teammate, playerWing, playerBig, playerCorner];
 const cpuRoster = [defender, cpuMate, cpuWing, cpuBig, cpuCorner];
 
+const POSITION_ORDER = ["PG", "SG", "SF", "PF", "C"];
+const RATING_LABELS = {
+  shot: "Shot",
+  finish: "Finish",
+  speed: "Speed",
+  pass: "Pass",
+  resistance: "Resistance",
+  handling: "Handling",
+  rebound: "Rebound",
+  stamina: "Stamina",
+};
+const POSITION_DEFAULTS = {
+  PG: { shot: 76, finish: 64, speed: 92, pass: 94, resistance: 48, handling: 92, rebound: 36, stamina: 88 },
+  SG: { shot: 88, finish: 76, speed: 85, pass: 74, resistance: 58, handling: 84, rebound: 46, stamina: 84 },
+  SF: { shot: 80, finish: 82, speed: 78, pass: 68, resistance: 72, handling: 76, rebound: 66, stamina: 81 },
+  PF: { shot: 68, finish: 88, speed: 68, pass: 58, resistance: 86, handling: 60, rebound: 87, stamina: 76 },
+  C: { shot: 56, finish: 94, speed: 56, pass: 52, resistance: 94, handling: 48, rebound: 95, stamina: 70 },
+};
+const ROLE_LINEUPS = {
+  "1v1": ["SF"],
+  "2v2": ["PG", "C"],
+  "3v3": ["PG", "SF", "C"],
+  "5v5": POSITION_ORDER,
+};
+let selectedRosterTeam = "player";
+let selectedRosterPosition = "PG";
+let loadedSettingsBundle = false;
+
+function assignRosterProfiles(roster, team) {
+  roster.forEach((member, index) => {
+    const position = POSITION_ORDER[index];
+    member.id = `${team}-${position.toLowerCase()}`;
+    member.team = team;
+    member.position = position;
+    member.ratings = { ...POSITION_DEFAULTS[position] };
+  });
+}
+
+assignRosterProfiles(playerRoster, "player");
+assignRosterProfiles(cpuRoster, "cpu");
+
 function resize() {
   state.w = window.innerWidth;
   state.h = window.innerHeight;
@@ -475,11 +531,16 @@ function getPlayerCount() {
 }
 
 function getPlayerTeam() {
-  return playerRoster.slice(0, getPlayerCount());
+  return getTeamForMode(playerRoster);
 }
 
 function getCpuTeam() {
-  return cpuRoster.slice(0, getPlayerCount());
+  return getTeamForMode(cpuRoster);
+}
+
+function getTeamForMode(roster) {
+  const lineup = ROLE_LINEUPS[settings.players] || ROLE_LINEUPS["5v5"];
+  return lineup.map((position) => roster.find((member) => member.position === position)).filter(Boolean);
 }
 
 function getPlayerKey(p) {
@@ -503,11 +564,11 @@ function findByKey(team, key, fallback) {
 }
 
 function getPlayerHandler() {
-  return findByKey(getPlayerTeam(), state.playerHandler, player);
+  return findByKey(getPlayerTeam(), state.playerHandler, getPlayerTeam()[0] || player);
 }
 
 function getPlayerControlledDefender() {
-  return findByKey(getPlayerTeam(), state.playerDefenderKey, player);
+  return findByKey(getPlayerTeam(), state.playerDefenderKey, getPlayerTeam()[0] || player);
 }
 
 function getControlledPlayerCharacter() {
@@ -517,7 +578,13 @@ function getControlledPlayerCharacter() {
 }
 
 function getCpuHandler() {
-  return findByKey(getCpuTeam(), state.cpuHandler, defender);
+  return findByKey(getCpuTeam(), state.cpuHandler, getCpuTeam()[0] || defender);
+}
+
+function getDefaultHandlerKey(owner) {
+  const team = owner === "player" ? getPlayerTeam() : getCpuTeam();
+  const handler = team.find((member) => member.position === "PG") || team[0];
+  return owner === "player" ? getPlayerKey(handler) : getCpuKey(handler);
 }
 
 function getCharacterByKey(key) {
@@ -639,7 +706,7 @@ function setSlowEnabled(enabled, announce = true) {
 
 function saveSettings() {
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(getSettingsBundle()));
   } catch (error) {
     // Ignore storage failures so private browsing does not break gameplay.
   }
@@ -648,8 +715,13 @@ function saveSettings() {
 function loadSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
-    if (!saved) return;
-    applySettingsSnapshot(saved);
+    if (saved?.format === SETTINGS_FILE_FORMAT && saved?.schemaVersion === SETTINGS_SCHEMA_VERSION) {
+      applySettingsBundle(saved);
+      loadedSettingsBundle = true;
+      return;
+    }
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_SETTINGS_KEY) || "null");
+    if (legacy) applySettingsSnapshot(legacy);
   } catch (error) {
     Object.assign(settings, DEFAULT_SETTINGS);
   }
@@ -681,12 +753,86 @@ function applySettingsSnapshot(snapshot) {
   settings.players = snapshot?.players === "5v5" ? "5v5" : snapshot?.players === "3v3" ? "3v3" : snapshot?.players === "2v2" ? "2v2" : "1v1";
 }
 
+function getRosterSnapshot() {
+  const serialize = (member) => ({
+    id: member.id,
+    position: member.position,
+    ratings: { ...member.ratings },
+  });
+  return { player: playerRoster.map(serialize), cpu: cpuRoster.map(serialize) };
+}
+
+function applyRosterSnapshot(snapshot) {
+  const applyTeam = (roster, values) => {
+    const saved = Array.isArray(values) ? values : [];
+    roster.forEach((member) => {
+      const entry = saved.find((candidate) => candidate?.id === member.id || candidate?.position === member.position);
+      const defaults = POSITION_DEFAULTS[member.position];
+      Object.keys(RATING_LABELS).forEach((rating) => {
+        member.ratings[rating] = readRating(entry?.ratings?.[rating], defaults[rating]);
+      });
+    });
+  };
+  applyTeam(playerRoster, snapshot?.player);
+  applyTeam(cpuRoster, snapshot?.cpu);
+}
+
+function resetRosterRatings() {
+  applyRosterSnapshot(null);
+}
+
+function getFullSettingsSnapshot() {
+  return { gameSettings: getSettingsSnapshot(), rosters: getRosterSnapshot() };
+}
+
+function applyFullSettingsSnapshot(snapshot) {
+  applySettingsSnapshot(snapshot?.gameSettings || snapshot);
+  if (snapshot?.rosters) applyRosterSnapshot(snapshot.rosters);
+  else resetRosterRatings();
+}
+
+function getSettingsBundle() {
+  return {
+    format: SETTINGS_FILE_FORMAT,
+    schemaVersion: SETTINGS_SCHEMA_VERSION,
+    appVersion: APP_VERSION,
+    exportedAt: new Date().toISOString(),
+    current: getFullSettingsSnapshot(),
+    presets: settingsPresets.map((preset) => (preset ? cloneSettingsData(preset) : null)),
+  };
+}
+
+function cloneSettingsData(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function applySettingsBundle(bundle) {
+  applyFullSettingsSnapshot(bundle?.current);
+  settingsPresets.fill(null);
+  if (Array.isArray(bundle?.presets)) {
+    bundle.presets.slice(0, settingsPresets.length).forEach((preset, index) => {
+      if (preset) settingsPresets[index] = normalizeFullSettingsSnapshot(preset);
+    });
+  }
+}
+
+function normalizeFullSettingsSnapshot(snapshot) {
+  const previousSettings = getSettingsSnapshot();
+  const previousRoster = getRosterSnapshot();
+  applyFullSettingsSnapshot(snapshot);
+  const normalized = getFullSettingsSnapshot();
+  applySettingsSnapshot(previousSettings);
+  applyRosterSnapshot(previousRoster);
+  return normalized;
+}
+
 function loadSettingsPresets() {
+  if (loadedSettingsBundle) return;
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_PRESETS_KEY) || "null");
     if (!Array.isArray(saved)) return;
     settingsPresets.forEach((_, index) => {
-      settingsPresets[index] = saved[index] ? { ...saved[index] } : null;
+      settingsPresets[index] = saved[index] ? normalizeFullSettingsSnapshot(saved[index]) : null;
     });
   } catch (error) {
     settingsPresets.fill(null);
@@ -694,16 +840,17 @@ function loadSettingsPresets() {
 }
 
 function saveSettingsPresets() {
-  try {
-    localStorage.setItem(SETTINGS_PRESETS_KEY, JSON.stringify(settingsPresets));
-  } catch (error) {
-    // Ignore storage failures so private browsing does not break gameplay.
-  }
+  saveSettings();
 }
 
 function readSetting(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? clamp(parsed, 0, 1) : fallback;
+}
+
+function readRating(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(clamp(parsed, 0, 100)) : fallback;
 }
 
 function readGameSeconds(value, fallback) {
@@ -735,7 +882,7 @@ function renderPresetOptions() {
 
 function saveSelectedPreset() {
   const index = clamp(Number(presetSelect.value) || 0, 0, settingsPresets.length - 1);
-  settingsPresets[index] = getSettingsSnapshot();
+  settingsPresets[index] = getFullSettingsSnapshot();
   saveSettingsPresets();
   renderPresetOptions();
   showMessage(`Saved slot ${index + 1}`);
@@ -748,8 +895,9 @@ function loadSelectedPreset() {
     showMessage(`Slot ${index + 1} is empty`);
     return;
   }
-  applySettingsSnapshot(preset);
+  applyFullSettingsSnapshot(preset);
   applySettingsToControls();
+  renderRosterEditor();
   syncSettings();
   showMessage(`Loaded slot ${index + 1}`);
 }
@@ -762,9 +910,58 @@ function getMoveSpeedScale() {
   return 0.82 + settings.moveSpeed * 0.48;
 }
 
+function getRating(member, rating) {
+  return readRating(member?.ratings?.[rating], 70);
+}
+
+function getRatingScale(member, rating, low, high) {
+  const value = getRating(member, rating);
+  if (value <= 70) return low + ((1 - low) * value) / 70;
+  return 1 + ((high - 1) * (value - 70)) / 30;
+}
+
+function getNearRimFactor(member, hoop = getAttackHoopForCharacter(member)) {
+  return 1 - clamp((distance(member, hoop) - 110) / Math.max(1, court.threeRadius - 110), 0, 1);
+}
+
+function getContestResistance(member, hoop = getAttackHoopForCharacter(member)) {
+  const resistance = clamp((getRating(member, "resistance") - 40) / 60, 0, 1);
+  return resistance * 0.45 * getNearRimFactor(member, hoop);
+}
+
+function getShotZoneScale(member) {
+  return getRatingScale(member, "shot", 0.7, 1.18);
+}
+
+function getShotQualityScale(member) {
+  return getRatingScale(member, "shot", 0.75, 1.15);
+}
+
+function getFinishQualityScale(member) {
+  return getRatingScale(member, "finish", 0.72, 1.16);
+}
+
+function getPassSpeedScale(member) {
+  return getRatingScale(member, "pass", 0.78, 1.15);
+}
+
+function getHandlingStealScale(member) {
+  return getRatingScale(member, "handling", 1.3, 0.75);
+}
+
+function getStaminaDrainScale(member) {
+  return getRatingScale(member, "stamina", 1.3, 0.8);
+}
+
+function getStaminaRecoverScale(member) {
+  return getRatingScale(member, "stamina", 0.75, 1.15);
+}
+
 function updateStamina(p, dashing, moving, step) {
   if (typeof p.stamina !== "number") p.stamina = 1;
-  const delta = dashing && moving ? -STAMINA_DRAIN : STAMINA_RECOVER;
+  const delta = dashing && moving
+    ? -STAMINA_DRAIN * getStaminaDrainScale(p)
+    : STAMINA_RECOVER * getStaminaRecoverScale(p);
   p.stamina = clamp(p.stamina + delta * step, 0, 1);
 }
 
@@ -782,7 +979,8 @@ function getCharacterMoveSpeed(p, wantsDash, moving, step) {
   }
   const screenedScale = (p.screenedUntil || 0) > state.time ? 0.22 : 1;
   const stealRecoveryScale = (p.stealRecoveryUntil || 0) > state.time ? 0.4 : 1;
-  return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale() * screenedScale * stealRecoveryScale;
+  const playerSpeed = getRatingScale(p, "speed", 0.75, 1.15);
+  return (dashing ? DASH_MOVE_SPEED : NORMAL_MOVE_SPEED) * getMoveSpeedScale() * playerSpeed * screenedScale * stealRecoveryScale;
 }
 
 function moveCharacterToward(p, target, step, wantsDash = false, stopDistance = 3, bounds = null) {
@@ -912,9 +1110,10 @@ function setPossession(possession) {
   state.passBall = null;
   state.freeThrow = null;
   state.rebound = null;
-  state.playerHandler = "player";
+  state.playerHandler = getDefaultHandlerKey("player");
   state.manualDefense = false;
-  state.cpuHandler = "defender";
+  state.playerDefenderKey = getDefaultHandlerKey("player");
+  state.cpuHandler = getDefaultHandlerKey("cpu");
   state.cpuShotTimer = possession === "cpu" ? 1.35 : 0;
   state.cpuDrivePhase = Math.random() * Math.PI * 2;
   state.cpuMoveTimer = 0;
@@ -1284,7 +1483,8 @@ function updateFreeThrows(dt, step = dt) {
   }
 
   if (freeThrow.owner === "cpu" && freeThrow.elapsed >= 0.72) {
-    const made = Math.random() < 0.76;
+    const shooter = getCharacterByKey(freeThrow.shooterKey);
+    const made = Math.random() < clamp(0.76 * getShotQualityScale(shooter), 0.4, 0.94);
     launchFreeThrow("cpu", made);
   }
   return true;
@@ -1398,11 +1598,12 @@ function beginRebound(shootingOwner, pickup, deadBall = false) {
         owner,
         key: owner === "player" ? getPlayerKey(member) : getCpuKey(member),
         distance: distance(member, pickup),
+        reboundScore: distance(member, pickup) - getRating(member, "rebound") * 0.65 + Math.random() * 18,
       };
     })
     .sort((a, b) => {
-      const distanceGap = a.distance - b.distance;
-      if (Math.abs(distanceGap) > 2) return distanceGap;
+      const scoreGap = a.reboundScore - b.reboundScore;
+      if (Math.abs(scoreGap) > 2) return scoreGap;
       return a.owner === shootingOwner ? 1 : -1;
     });
   const winner = candidates[0];
@@ -1841,13 +2042,16 @@ function launchShot(skill, source, perfectTiming) {
   const facingFactor = getDefenderFacingFactor(shooter, primaryDefender);
   const contest = getContestPressureFor(shooter, primaryDefender);
   const smother = clamp((58 - defenderDistance) / 24, 0, 1) * facingFactor;
+  const resistance = getContestResistance(shooter, hoop);
+  const effectiveContest = contest * (1 - resistance);
+  const effectiveSmother = smother * (1 - resistance);
   const range = clamp((shotDistance - 150) / 520, 0, 1);
   const halfCourtPenalty = clamp((hoop.x - shooter.x - court.w / 2) / 170, 0, 1);
   const defenseEffect = 0.25 + settings.defense * 0.58;
   const distanceEffect = 0.08 + settings.distance * 0.3;
   const halfCourtEffect = 0.18 + settings.distance * 0.62;
-  const quality = clamp(skill - contest * defenseEffect - smother * defenseEffect * 0.9 - range * distanceEffect - halfCourtPenalty * halfCourtEffect + 0.02, 0, 1);
-  const blocked = smother >= 0.92 || halfCourtPenalty >= 0.94;
+  const quality = clamp(skill * getShotQualityScale(shooter) - effectiveContest * defenseEffect - effectiveSmother * defenseEffect * 0.9 - range * distanceEffect - halfCourtPenalty * halfCourtEffect + 0.02, 0, 1);
+  const blocked = effectiveSmother >= 0.92 || halfCourtPenalty >= 0.94;
   const made = perfectTiming
     ? !blocked
     : !blocked && (quality > 0.88 || (quality > 0.62 && Math.random() < quality * 0.28));
@@ -1911,7 +2115,7 @@ function getFinishOpportunity(offense, defense, moveVector) {
   const committed = moveVector.strength > 0.42 && driveDot > 0.35;
   const close = rimDistance < 154;
   const kind = rimDistance < 106 && space > 96 ? "dunk" : "layup";
-  const quality = clamp(0.72 + (154 - rimDistance) / 170 + (space - 76) / 160 + driveDot * 0.18, 0, 1);
+  const quality = clamp((0.72 + (154 - rimDistance) / 170 + (space - 76) / 160 + driveDot * 0.18) * getFinishQualityScale(offense), 0, 1);
 
   return {
     available: close && hasLane && committed,
@@ -1927,7 +2131,7 @@ function launchFinish(owner, kind, quality) {
   const offense = owner === "player" ? getPlayerHandler() : getCpuHandler();
   const defense = owner === "player" ? getNearestCpuDefender(offense) : getNearestPlayerDefender(offense);
   const hoop = getAttackHoop(owner);
-  const contest = clamp(1 - (distance(offense, defense) - 48) / 88, 0, 1) * getDefenderFacingFactor(offense, defense);
+  const contest = clamp(1 - (distance(offense, defense) - 48) / 88, 0, 1) * getDefenderFacingFactor(offense, defense) * (1 - getContestResistance(offense, hoop));
   const made = kind === "dunk"
     ? contest < 0.82 && quality > 0.72
     : quality - contest * 0.38 > 0.58;
@@ -2151,8 +2355,9 @@ function startPass(owner, from, to, nextHandler, options = {}) {
     x: startX,
     y: startY,
     t: 0,
-    duration: options.duration || 0.24,
-    interceptions: options.allowInterceptions === false ? [] : getPassInterceptionAttempts(owner, { x: startX, y: startY }, { x: targetX, y: targetY }),
+    duration: (options.duration || 0.24) / getPassSpeedScale(from),
+    passer: from,
+    interceptions: options.allowInterceptions === false ? [] : getPassInterceptionAttempts(owner, { x: startX, y: startY }, { x: targetX, y: targetY }, from),
   };
   showMessage(options.message || (owner === "player" ? "Pass" : "CPU pass"));
 }
@@ -2183,7 +2388,7 @@ function updatePassBall(step) {
   return false;
 }
 
-function getPassInterceptionAttempts(owner, start, end) {
+function getPassInterceptionAttempts(owner, start, end, passer = null) {
   const defenders = owner === "player" ? getCpuTeam() : getPlayerTeam();
   const dx = end.x - start.x;
   const dy = end.y - start.y;
@@ -2203,7 +2408,7 @@ function getPassInterceptionAttempts(owner, start, end) {
       const closeness = 1 - laneDistance / laneRadius;
       const center = 1 - Math.abs(progress - 0.5) * 2;
       const longPass = clamp((length - 120) / 540, 0, 1);
-      const chance = clamp(0.1 + closeness * 0.44 + facing * 0.1 + center * 0.1 + longPass * 0.08, 0.1, 0.82);
+      const chance = clamp((0.1 + closeness * 0.44 + facing * 0.1 + center * 0.1 + longPass * 0.08) / getPassSpeedScale(passer), 0.05, 0.82);
       return {
         defenderKey: owner === "player" ? getCpuKey(defender) : getPlayerKey(defender),
         time: 1 - Math.sqrt(1 - progress),
@@ -2237,8 +2442,8 @@ function commitLiveTurnover(possession, interceptor, message) {
   state.freeThrow = null;
   state.rebound = null;
   state.ball = null;
-  state.playerHandler = possession === "player" ? getPlayerKey(interceptor) : "player";
-  state.cpuHandler = possession === "cpu" ? getCpuKey(interceptor) : "defender";
+  state.playerHandler = possession === "player" ? getPlayerKey(interceptor) : getDefaultHandlerKey("player");
+  state.cpuHandler = possession === "cpu" ? getCpuKey(interceptor) : getDefaultHandlerKey("cpu");
   state.cpuShotTimer = possession === "cpu" ? 0.48 : 0;
   state.cpuMoveTimer = 0;
   state.cpuMoveStyle = "probe";
@@ -2291,14 +2496,14 @@ function getCpuShotProfile(shooter, primaryDefender) {
   const hoop = getAttackHoop("cpu");
   const shotDistance = distance(shooter, hoop);
   const defenderDistance = distance(shooter, primaryDefender);
-  const contest = clamp(1 - (defenderDistance - 46) / 190, 0, 1) * getDefenderFacingFactor(shooter, primaryDefender);
+  const contest = clamp(1 - (defenderDistance - 46) / 190, 0, 1) * getDefenderFacingFactor(shooter, primaryDefender) * (1 - getContestResistance(shooter, hoop));
   const range = clamp((shotDistance - 130) / 540, 0, 1);
   const deepPenalty = clamp((shotDistance - 330) / 240, 0, 1);
   const halfCourtPenalty = clamp((shooter.x - hoop.x - court.w / 2) / 170, 0, 1);
   const points = isThreePoint(shooter) ? 3 : 2;
   const rhythm = state.cpuMoveStyle === "catch" || state.cpuMoveStyle === "swing" ? 0.06 : state.cpuMoveStyle === "stepback" ? 0.035 : 0;
   const randomness = (Math.random() - 0.5) * 0.05;
-  const quality = clamp(0.86 + rhythm + randomness - contest * 0.5 - range * 0.24 - deepPenalty * 0.28 - halfCourtPenalty * 0.65, 0.05, 0.92);
+  const quality = clamp((0.86 + rhythm + randomness) * getShotQualityScale(shooter) - contest * 0.5 - range * 0.24 - deepPenalty * 0.28 - halfCourtPenalty * 0.65, 0.05, 0.92);
   const makeProbability = clamp(quality * 0.78 - contest * 0.06 - deepPenalty * 0.12, 0.03, 0.78);
   return {
     shotDistance,
@@ -2561,7 +2766,7 @@ function updateCpuStealAttempt(step, handler) {
 function updateCpuZoneDefense(handler, step) {
   const defense = getCpuTeam();
   const hoop = getAttackHoop("player");
-  const rimProtector = defense[0];
+  const rimProtector = defense.find((member) => member.position === "C") || defense[0];
   moveCpuRimProtector(rimProtector, handler, hoop, step);
 
   if (!isTwoOnTwo()) return;
@@ -2749,7 +2954,7 @@ function updateFiveOnFiveTwoThreeDefense(defenseTeam, handler, step, controlledD
   const hoop = getAttackHoopForCharacter(handler);
   const homes = getTwoThreeZoneHomes(hoop);
   const checkerIndex = getTwoThreeCheckerIndex(handler, hoop);
-  defenseTeam.forEach((agent, index) => {
+  getTwoThreeZoneOrder(defenseTeam).forEach((agent, index) => {
     if (agent === controlledDefender) return;
     const checkingBall = index === checkerIndex;
     const spot = checkingBall
@@ -2758,6 +2963,11 @@ function updateFiveOnFiveTwoThreeDefense(defenseTeam, handler, step, controlledD
     const urgent = checkingBall && distance(agent, spot) > 112;
     moveCharacterToward(agent, spot, step, urgent, 4);
   });
+}
+
+function getTwoThreeZoneOrder(team) {
+  const order = ["PG", "SG", "SF", "C", "PF"];
+  return order.map((position) => team.find((member) => member.position === position)).filter(Boolean);
 }
 
 function getTwoThreeZoneHomes(hoop) {
@@ -2923,26 +3133,23 @@ function getCpuSpacingSpot(offBall, handler, index) {
 function getFiveOnFiveSpacingSpot(agent, team, owner, handler) {
   const hoop = getAttackHoop(owner);
   const direction = hoop === court.rightHoop ? -1 : 1;
-  const slots = [
-    { depth: 520, lane: 0 },
-    { depth: 350, lane: -224 },
-    { depth: 350, lane: 224 },
-    { depth: 168, lane: -316 },
-    { depth: 168, lane: 316 },
-  ];
-  const index = Math.max(0, team.indexOf(agent));
-  const handlerIndex = team.indexOf(handler);
+  const slots = {
+    PG: { depth: 520, lane: 0 },
+    SG: { depth: 350, lane: -224 },
+    SF: { depth: 350, lane: 224 },
+    PF: { depth: 168, lane: -316 },
+    C: { depth: 118, lane: 0 },
+  };
+  const index = Math.max(0, POSITION_ORDER.indexOf(agent.position));
+  const handlerIndex = POSITION_ORDER.indexOf(handler.position);
   let slotIndex = index;
   const exchanging = Math.floor(state.time / 6200) % 2 === 1;
-  if (exchanging && handlerIndex !== 1 && handlerIndex !== 3) {
+  if (exchanging && handlerIndex !== 1 && handlerIndex !== 2) {
     if (index === 1) slotIndex = 3;
-    else if (index === 3) slotIndex = 1;
+    else if (index === 2) slotIndex = 1;
   }
-  if (exchanging && handlerIndex !== 2 && handlerIndex !== 4) {
-    if (index === 2) slotIndex = 4;
-    else if (index === 4) slotIndex = 2;
-  }
-  const slot = slots[slotIndex];
+  const slotPositions = POSITION_ORDER;
+  const slot = slots[slotPositions[slotIndex]] || slots[agent.position] || slots.SF;
   const roamX = Math.sin(state.time / (780 + index * 55) + index * 1.6) * 20;
   const roamY = Math.cos(state.time / (910 + index * 65) + index * 1.3) * (slot.lane === 0 ? 34 : 18);
   const minX = hoop === court.rightHoop ? court.w * 0.5 + 70 : hoop.x + 72;
@@ -3168,9 +3375,9 @@ function registerScreenContact(defender) {
 function isCpuBallChecker(p) {
   if (state.possession !== "player" || !isTwoOnTwo() || !getCpuTeam().includes(p)) return false;
   if (isFiveOnFive()) {
-    return p === getCpuTeam()[getTwoThreeCheckerIndex(getPlayerHandler(), getAttackHoop("player"))];
+    return p === getTwoThreeZoneOrder(getCpuTeam())[getTwoThreeCheckerIndex(getPlayerHandler(), getAttackHoop("player"))];
   }
-  const rimProtector = getCpuTeam()[0];
+  const rimProtector = getCpuTeam().find((member) => member.position === "C") || getCpuTeam()[0];
   if (p === rimProtector) return false;
   const hoop = getAttackHoop("player");
   const zoneDefenders = getCpuTeam().filter((member) => member !== rimProtector);
@@ -3197,10 +3404,11 @@ function updateTimingZone() {
   const deepRangePressure = clamp((shotDistance - 300) / 230, 0, 1);
   const halfCourtPressure = clamp((hoop.x - shooter.x - court.w / 2) / 180, 0, 1);
   const liveContestPressure = getContestPressure();
-  const contestPressure = Math.max(state.timingStartContest, liveContestPressure);
-  const smotherPressure = clamp((58 - distance(shooter, primaryDefender)) / 24, 0, 1) * getDefenderFacingFactor(shooter, primaryDefender);
+  const resistance = getContestResistance(shooter, hoop);
+  const contestPressure = Math.max(state.timingStartContest, liveContestPressure) * (1 - resistance);
+  const smotherPressure = clamp((58 - distance(shooter, primaryDefender)) / 24, 0, 1) * getDefenderFacingFactor(shooter, primaryDefender) * (1 - resistance);
   const patiencePressure = clamp(state.timingHold / 2.4, 0, 1);
-  const baseSize = 0.34;
+  const baseSize = 0.34 * getShotZoneScale(shooter);
   const size = clamp(
     baseSize -
       rangePressure * (0.08 + settings.distance * 0.28) -
@@ -3246,9 +3454,10 @@ function getStealContactFit(stealDistance) {
   return clamp((STEAL_CONTACT_DISTANCE - stealDistance) / 20, 0, 1);
 }
 
-function getStealSuccessChance(stealDistance) {
+function getStealSuccessChance(stealDistance, handler = state.possession === "player" ? getPlayerHandler() : getCpuHandler()) {
   const contactFit = getStealContactFit(stealDistance);
-  return clamp(0.02 + settings.stealSuccess * 0.05 + contactFit ** 4 * (0.7 + settings.stealSuccess * 0.35), 0.02, 0.97);
+  const base = 0.02 + settings.stealSuccess * 0.05 + contactFit ** 4 * (0.7 + settings.stealSuccess * 0.35);
+  return clamp(base * getHandlingStealScale(handler), 0.02, 0.97);
 }
 
 function getStealFoulChance(timingValue, zone, stealDistance) {
@@ -3260,7 +3469,8 @@ function getStealFoulChance(timingValue, zone, stealDistance) {
 
 function getStealAttemptOutcome(timingValue, zone, stealDistance) {
   const inside = timingValue >= zone.start && timingValue <= zone.end;
-  if (inside) return { success: Math.random() < getStealSuccessChance(stealDistance), foul: false };
+  const handler = state.possession === "player" ? getPlayerHandler() : getCpuHandler();
+  if (inside) return { success: Math.random() < getStealSuccessChance(stealDistance, handler), foul: false };
   return { success: false, foul: Math.random() < getStealFoulChance(timingValue, zone, stealDistance) };
 }
 
@@ -3272,7 +3482,9 @@ function updateActiveTimingZone() {
 
 function updateFreeThrowTimingZone() {
   const meterH = Math.max(1, meter.clientHeight);
-  state.timingZone = { start: 0.445, end: 0.555, center: 0.5, size: 0.11 };
+  const shooter = state.freeThrow ? getCharacterByKey(state.freeThrow.shooterKey) : getPlayerHandler();
+  const size = clamp(0.11 * getRatingScale(shooter, "shot", 0.85, 1.15), 0.055, 0.14);
+  state.timingZone = { start: 0.5 - size / 2, end: 0.5 + size / 2, center: 0.5, size };
   sweet.style.top = `${state.timingZone.start * meterH}px`;
   sweet.style.height = `${state.timingZone.size * meterH}px`;
 }
@@ -3386,9 +3598,116 @@ function closeSettings() {
 
 function resetSettings() {
   Object.assign(settings, DEFAULT_SETTINGS);
+  resetRosterRatings();
   applySettingsToControls();
+  renderRosterEditor();
   syncSettings();
   showMessage("Settings reset");
+}
+
+function setSettingsTab(tab) {
+  const tabs = { game: gameSettingsTab, players: playersSettingsTab, data: dataSettingsTab };
+  const pages = { game: gameSettingsPage, players: playersSettingsPage, data: dataSettingsPage };
+  Object.entries(tabs).forEach(([key, button]) => {
+    if (!button) return;
+    const active = key === tab;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  Object.entries(pages).forEach(([key, page]) => {
+    if (page) page.hidden = key !== tab;
+  });
+  if (tab === "players") renderRosterEditor();
+}
+
+function getRosterMember(team = selectedRosterTeam, position = selectedRosterPosition) {
+  const roster = team === "cpu" ? cpuRoster : playerRoster;
+  return roster.find((member) => member.position === position) || roster[0];
+}
+
+function renderRosterEditor() {
+  if (!rosterPositionControl || !rosterEditor) return;
+  const teamButtons = rosterTeamControl?.querySelectorAll ? rosterTeamControl.querySelectorAll("[data-roster-team]") : [];
+  teamButtons.forEach((button) => button.classList.toggle("active", button.dataset.rosterTeam === selectedRosterTeam));
+  rosterPositionControl.innerHTML = POSITION_ORDER.map((position) => `
+    <button type="button" data-roster-position="${position}" class="${position === selectedRosterPosition ? "active" : ""}">${position}</button>
+  `).join("");
+  const member = getRosterMember();
+  if (!member) return;
+  const ratings = Object.entries(RATING_LABELS).map(([key, label]) => `
+    <div class="rating-row">
+      <label for="rating-${key}">${label}</label>
+      <output id="rating-value-${key}">${member.ratings[key]}</output>
+      <input id="rating-${key}" data-rating="${key}" type="range" min="0" max="100" value="${member.ratings[key]}" />
+    </div>
+  `).join("");
+  rosterEditor.innerHTML = `
+    <div class="roster-summary">
+      <strong>${selectedRosterTeam === "player" ? "YOU" : "CPU"} ${member.position}</strong>
+      <span>Position default available</span>
+    </div>
+    ${ratings}
+    <button id="resetPlayerRatingsButton" class="reset-player-button" type="button">RESET ${member.position}</button>
+  `;
+}
+
+function updateSelectedRosterRating(rating, value) {
+  const member = getRosterMember();
+  if (!member || !Object.prototype.hasOwnProperty.call(RATING_LABELS, rating)) return;
+  member.ratings[rating] = readRating(value, member.ratings[rating]);
+  const output = document.getElementById(`rating-value-${rating}`);
+  if (output) output.textContent = String(member.ratings[rating]);
+  saveSettings();
+}
+
+function resetSelectedRosterMember() {
+  const member = getRosterMember();
+  if (!member) return;
+  member.ratings = { ...POSITION_DEFAULTS[member.position] };
+  renderRosterEditor();
+  saveSettings();
+  showMessage(`${member.position} reset`);
+}
+
+function exportSettingsFile() {
+  if (typeof Blob === "undefined" || !document.createElement || typeof URL === "undefined" || !URL.createObjectURL) {
+    showMessage("Export unavailable");
+    return;
+  }
+  const file = new Blob([JSON.stringify(getSettingsBundle(), null, 2)], { type: "application/json" });
+  const link = document.createElement("a");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 16).replace("T", "-");
+  link.href = URL.createObjectURL(file);
+  link.download = `basketball-settings-${stamp}.json`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 0);
+  showMessage("Settings exported");
+}
+
+function importSettingsFile(event) {
+  const file = event.target?.files?.[0];
+  if (!file || typeof FileReader === "undefined") return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const bundle = JSON.parse(String(reader.result || ""));
+      if (bundle?.format !== SETTINGS_FILE_FORMAT || bundle?.schemaVersion !== SETTINGS_SCHEMA_VERSION || !bundle?.current) {
+        throw new Error("Unsupported settings file");
+      }
+      if (typeof window.confirm === "function" && !window.confirm("Replace current settings, rosters, and preset slots?")) return;
+      applySettingsBundle(bundle);
+      applySettingsToControls();
+      renderRosterEditor();
+      renderPresetOptions();
+      syncSettings();
+      showMessage("Settings imported");
+    } catch (error) {
+      showMessage("Invalid settings file");
+    } finally {
+      event.target.value = "";
+    }
+  };
+  reader.readAsText(file);
 }
 
 function isThreePoint(p) {
@@ -3466,19 +3785,21 @@ function beginMissBounce(ball, hoop) {
   if (!ball.freeThrow) {
     const catchProgress = 0.7;
     const catchPoint = getMissBouncePosition(bounce, catchProgress);
-    const maxReach = DASH_MOVE_SPEED * getMoveSpeedScale() * bounce.duration * catchProgress * 0.9;
     const catcher = getActiveCharacters()
       .map((member) => {
         const owner = isPlayerTeam(member) ? "player" : "cpu";
+        const maxReach = DASH_MOVE_SPEED * getMoveSpeedScale() * getRatingScale(member, "speed", 0.75, 1.15) * bounce.duration * catchProgress * 0.9;
         return {
           member,
           owner,
           key: owner === "player" ? getPlayerKey(member) : getCpuKey(member),
           distance: distance(member, catchPoint.ground),
+          maxReach,
+          reboundScore: distance(member, catchPoint.ground) - getRating(member, "rebound") * 0.5 + Math.random() * 12,
         };
       })
-      .filter((candidate) => candidate.distance <= maxReach + candidate.member.r * 1.25)
-      .sort((a, b) => a.distance - b.distance)[0];
+      .filter((candidate) => candidate.distance <= candidate.maxReach + candidate.member.r * (1.1 + getRating(candidate.member, "rebound") / 500))
+      .sort((a, b) => a.reboundScore - b.reboundScore)[0];
     if (catcher) {
       bounce.airCatch = {
         ...catcher,
@@ -3503,7 +3824,7 @@ function updateMissBounce(ball, dt) {
 
   if (bounce.airCatch && progress >= bounce.airCatch.progress) {
     const catcher = getCharacterByKey(bounce.airCatch.key);
-    if (distance(catcher, bounce.airCatch.ground) <= catcher.r * 1.65) {
+    if (distance(catcher, bounce.airCatch.ground) <= catcher.r * (1.45 + getRating(catcher, "rebound") / 500)) {
       finishRebound(
         { shootingOwner: ball.owner, owner: bounce.airCatch.owner, winnerKey: bounce.airCatch.key },
         catcher,
@@ -4218,6 +4539,31 @@ closeSettingsButton.addEventListener("click", closeSettings);
 resetSettingsButton.addEventListener("click", resetSettings);
 savePresetButton.addEventListener("click", saveSelectedPreset);
 loadPresetButton.addEventListener("click", loadSelectedPreset);
+gameSettingsTab.addEventListener("click", () => setSettingsTab("game"));
+playersSettingsTab.addEventListener("click", () => setSettingsTab("players"));
+dataSettingsTab.addEventListener("click", () => setSettingsTab("data"));
+rosterTeamControl.addEventListener("click", (event) => {
+  const team = event.target?.dataset?.rosterTeam;
+  if (team !== "player" && team !== "cpu") return;
+  selectedRosterTeam = team;
+  renderRosterEditor();
+});
+rosterPositionControl.addEventListener("click", (event) => {
+  const position = event.target?.dataset?.rosterPosition;
+  if (!POSITION_ORDER.includes(position)) return;
+  selectedRosterPosition = position;
+  renderRosterEditor();
+});
+rosterEditor.addEventListener("input", (event) => {
+  const rating = event.target?.dataset?.rating;
+  if (rating) updateSelectedRosterRating(rating, event.target.value);
+});
+rosterEditor.addEventListener("click", (event) => {
+  if (event.target?.id === "resetPlayerRatingsButton") resetSelectedRosterMember();
+});
+exportSettingsButton.addEventListener("click", exportSettingsFile);
+importSettingsButton.addEventListener("click", () => importSettingsInput.click());
+importSettingsInput.addEventListener("change", importSettingsFile);
 mode1v1Button.addEventListener("click", () => setPlayerMode("1v1"));
 mode2v2Button.addEventListener("click", () => setPlayerMode("2v2"));
 mode3v3Button.addEventListener("click", () => setPlayerMode("3v3"));
@@ -4258,6 +4604,7 @@ loadSettings();
 loadSettingsPresets();
 applySettingsToControls();
 renderPresetOptions();
+renderRosterEditor();
 syncSettings();
 setSlowEnabled(true, false);
 resize();

@@ -579,6 +579,141 @@ button {
   font-size: 22px;
 }
 
+.settings-tabs,
+.roster-team-control,
+.roster-position-control {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid rgba(247, 241, 227, 0.14);
+  border-radius: 8px;
+  background: rgba(247, 241, 227, 0.06);
+}
+
+.settings-tabs {
+  grid-template-columns: repeat(3, 1fr);
+  margin-bottom: 12px;
+}
+
+.settings-tabs button,
+.roster-team-control button,
+.roster-position-control button {
+  min-height: 38px;
+  border-radius: 6px;
+  color: rgba(247, 241, 227, 0.68);
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+.settings-tabs button.active,
+.roster-team-control button.active,
+.roster-position-control button.active {
+  background: #99d6c2;
+  color: #10161b;
+}
+
+.roster-team-control {
+  grid-template-columns: 1fr 1fr;
+  margin: 4px 0 10px;
+}
+
+.roster-position-control {
+  grid-template-columns: repeat(5, 1fr);
+  margin-bottom: 12px;
+}
+
+.roster-position-control button {
+  min-width: 0;
+  font-size: 11px;
+}
+
+.roster-editor {
+  border-top: 1px solid rgba(247, 241, 227, 0.1);
+}
+
+.roster-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0 8px;
+}
+
+.roster-summary strong {
+  color: #f7f1e3;
+  font-size: 18px;
+}
+
+.roster-summary span,
+.data-note {
+  margin: 0;
+  color: rgba(247, 241, 227, 0.64);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rating-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 7px 14px;
+  padding: 11px 0;
+  border-top: 1px solid rgba(247, 241, 227, 0.08);
+}
+
+.rating-row label,
+.rating-row output {
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.rating-row label {
+  color: rgba(247, 241, 227, 0.8);
+}
+
+.rating-row output {
+  color: #f5bf45;
+}
+
+.rating-row input {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: #99d6c2;
+}
+
+.reset-player-button,
+.data-actions button {
+  min-height: 46px;
+  border: 1px solid rgba(247, 241, 227, 0.18);
+  border-radius: 8px;
+  background: rgba(247, 241, 227, 0.08);
+  color: #f7f1e3;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 1000;
+}
+
+.reset-player-button {
+  width: 100%;
+  margin-top: 12px;
+  color: #f5bf45;
+}
+
+.data-note {
+  padding: 12px 0 16px;
+  line-height: 1.5;
+}
+
+.data-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.data-actions button:first-child {
+  border-color: rgba(153, 214, 194, 0.54);
+  color: #99d6c2;
+}
+
 .close-button {
   width: 44px;
   min-height: 44px;

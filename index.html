@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0f1419" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>Basketball 1v1 Prototype</title>
+    <title>Basketball Prototype</title>
     <link rel="manifest" href="manifest.json" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
     <link rel="stylesheet" href="styles.css" />
@@ -76,13 +76,13 @@
         <strong id="celebrationText" class="celebration-text">DUNK!</strong>
         <span id="celebrationDetail" class="celebration-detail">2 POINTS</span>
       </div>
-      <div id="versionBadge" class="version-badge">v0.10.13</div>
+      <div id="versionBadge" class="version-badge">v0.11.0</div>
 
       <section id="titleScreen" class="title-screen" aria-label="タイトル">
         <div class="title-panel">
           <p class="kicker">1v1 / 2v2 / 3v3 / 5v5 Prototype</p>
           <h1>Basketball</h1>
-          <p id="titleVersion" class="title-version">v0.10.13</p>
+          <p id="titleVersion" class="title-version">v0.11.0</p>
           <div class="title-actions">
             <button id="startButton" class="primary-button" type="button">START</button>
             <button id="settingsButton" class="secondary-button" type="button">SETTINGS</button>
@@ -96,6 +96,12 @@
             <h2>Settings</h2>
             <button id="closeSettingsButton" class="close-button" type="button" aria-label="閉じる">x</button>
           </div>
+          <div class="settings-tabs" role="tablist" aria-label="設定カテゴリ">
+            <button id="gameSettingsTab" class="active" type="button" role="tab" aria-selected="true">GAME</button>
+            <button id="playersSettingsTab" type="button" role="tab" aria-selected="false">PLAYERS</button>
+            <button id="dataSettingsTab" type="button" role="tab" aria-selected="false">DATA</button>
+          </div>
+          <div id="gameSettingsPage" class="settings-page">
           <div class="setting-row">
             <span>Players</span>
             <div class="segmented-control" role="group" aria-label="プレイヤー数">
@@ -162,6 +168,23 @@
             </div>
           </div>
           <button id="resetSettingsButton" class="reset-button" type="button">RESET DEFAULTS</button>
+          </div>
+          <div id="playersSettingsPage" class="settings-page" hidden>
+            <div id="rosterTeamControl" class="roster-team-control" role="group" aria-label="編集するチーム">
+              <button type="button" data-roster-team="player" class="active">YOU</button>
+              <button type="button" data-roster-team="cpu">CPU</button>
+            </div>
+            <div id="rosterPositionControl" class="roster-position-control" role="tablist" aria-label="ポジション"></div>
+            <div id="rosterEditor" class="roster-editor"></div>
+          </div>
+          <div id="dataSettingsPage" class="settings-page" hidden>
+            <p class="data-note">Export includes game settings, both rosters, and all preset slots.</p>
+            <div class="data-actions">
+              <button id="exportSettingsButton" type="button">EXPORT</button>
+              <button id="importSettingsButton" type="button">IMPORT</button>
+            </div>
+            <input id="importSettingsInput" type="file" accept="application/json,.json" hidden />
+          </div>
         </div>
       </section>
     </main>
