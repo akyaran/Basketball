@@ -68,7 +68,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.11.3";
+const APP_VERSION = "0.11.4";
 const SETTINGS_KEY = "basketball-settings-v2";
 const LEGACY_SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
@@ -355,6 +355,14 @@ const playerRoster = [player, teammate, playerWing, playerBig, playerCorner];
 const cpuRoster = [defender, cpuMate, cpuWing, cpuBig, cpuCorner];
 
 const POSITION_ORDER = ["PG", "SG", "SF", "PF", "C"];
+const RATING_BUDGET = 480;
+const POSITION_SIZE_SCALE = {
+  PG: 0.8,
+  SG: 0.88,
+  SF: 0.97,
+  PF: 1.05,
+  C: 1.13,
+};
 const RATING_LABELS = {
   shot: "Shot",
   finish: "Finish",
@@ -366,11 +374,11 @@ const RATING_LABELS = {
   stamina: "Stamina",
 };
 const POSITION_DEFAULTS = {
-  PG: { shot: 76, finish: 64, speed: 92, pass: 94, resistance: 48, handling: 92, rebound: 36, stamina: 88 },
-  SG: { shot: 88, finish: 76, speed: 85, pass: 74, resistance: 58, handling: 84, rebound: 46, stamina: 84 },
-  SF: { shot: 80, finish: 82, speed: 78, pass: 68, resistance: 72, handling: 76, rebound: 66, stamina: 81 },
-  PF: { shot: 68, finish: 88, speed: 68, pass: 58, resistance: 86, handling: 60, rebound: 87, stamina: 76 },
-  C: { shot: 56, finish: 94, speed: 56, pass: 52, resistance: 94, handling: 48, rebound: 95, stamina: 70 },
+  PG: { shot: 60, finish: 34, speed: 94, pass: 96, resistance: 28, handling: 96, rebound: 18, stamina: 54 },
+  SG: { shot: 96, finish: 70, speed: 78, pass: 50, resistance: 40, handling: 78, rebound: 20, stamina: 48 },
+  SF: { shot: 70, finish: 82, speed: 72, pass: 48, resistance: 74, handling: 60, rebound: 34, stamina: 40 },
+  PF: { shot: 38, finish: 94, speed: 62, pass: 38, resistance: 96, handling: 34, rebound: 86, stamina: 32 },
+  C: { shot: 20, finish: 100, speed: 42, pass: 30, resistance: 100, handling: 20, rebound: 100, stamina: 68 },
 };
 const ROLE_LINEUPS = {
   "1v1": ["SF"],
@@ -768,9 +776,11 @@ function applyRosterSnapshot(snapshot) {
     roster.forEach((member) => {
       const entry = saved.find((candidate) => candidate?.id === member.id || candidate?.position === member.position);
       const defaults = POSITION_DEFAULTS[member.position];
+      const ratings = {};
       Object.keys(RATING_LABELS).forEach((rating) => {
-        member.ratings[rating] = readRating(entry?.ratings?.[rating], defaults[rating]);
+        ratings[rating] = readRating(entry?.ratings?.[rating], defaults[rating]);
       });
+      member.ratings = normalizeRatingsToBudget(ratings, defaults);
     });
   };
   applyTeam(playerRoster, snapshot?.player);
@@ -853,6 +863,40 @@ function readRating(value, fallback) {
   return Number.isFinite(parsed) ? Math.round(clamp(parsed, 0, 100)) : fallback;
 }
 
+function getRatingTotal(member) {
+  return Object.keys(RATING_LABELS).reduce((total, rating) => total + getRating(member, rating), 0);
+}
+
+function getRatingBudgetLimit(member, rating) {
+  const current = getRating(member, rating);
+  return clamp(RATING_BUDGET - (getRatingTotal(member) - current), 0, 100);
+}
+
+function normalizeRatingsToBudget(ratings, defaults) {
+  const values = {};
+  const fractions = [];
+  let total = 0;
+  Object.keys(RATING_LABELS).forEach((rating) => {
+    values[rating] = readRating(ratings?.[rating], defaults[rating]);
+    total += values[rating];
+  });
+  if (total <= RATING_BUDGET) return values;
+
+  const scale = RATING_BUDGET / total;
+  let assigned = 0;
+  Object.keys(RATING_LABELS).forEach((rating) => {
+    const scaled = values[rating] * scale;
+    values[rating] = Math.floor(scaled);
+    assigned += values[rating];
+    fractions.push({ rating, fraction: scaled - values[rating] });
+  });
+  fractions.sort((a, b) => b.fraction - a.fraction);
+  for (let index = 0; assigned < RATING_BUDGET; index += 1, assigned += 1) {
+    values[fractions[index % fractions.length].rating] += 1;
+  }
+  return values;
+}
+
 function readGameSeconds(value, fallback) {
   const parsed = Number(value);
   return [60, 120, 180, 300].includes(parsed) ? parsed : fallback;
@@ -904,6 +948,10 @@ function loadSelectedPreset() {
 
 function getCharacterScale() {
   return 0.76 + settings.characterSize * 0.42;
+}
+
+function getPositionSizeScale(member) {
+  return POSITION_SIZE_SCALE[member?.position] || 1;
 }
 
 function getMoveSpeedScale() {
@@ -1057,8 +1105,8 @@ function registerMovingScreenContact(a, b) {
 
 function applyCharacterSettings() {
   const scale = getCharacterScale();
-  for (const p of playerRoster) p.r = BASE_PLAYER_RADIUS * scale;
-  for (const p of cpuRoster) p.r = BASE_CPU_RADIUS * scale;
+  for (const p of playerRoster) p.r = BASE_PLAYER_RADIUS * scale * getPositionSizeScale(p);
+  for (const p of cpuRoster) p.r = BASE_CPU_RADIUS * scale * getPositionSizeScale(p);
 }
 
 function resetCharacterAnimation(p) {
@@ -2236,7 +2284,8 @@ function callPlayerScreen() {
 function getScreenSetTarget(handler, defender, side) {
   const hoop = getAttackHoop("player");
   const rimDir = normalizeVector({ x: hoop.x - handler.x, y: hoop.y - handler.y });
-  const gap = defender.r + BASE_PLAYER_RADIUS * getCharacterScale() + 5;
+  const screener = state.screenPlay ? getCharacterByKey(state.screenPlay.screenerKey) : handler;
+  const gap = defender.r + (screener?.r || handler.r) + 5;
   return {
     x: clamp(defender.x - rimDir.x * 10, 96, court.w - 96),
     y: clamp(defender.y + side * gap, 82, court.h - 82),
@@ -3638,14 +3687,15 @@ function renderRosterEditor() {
     <div class="rating-row">
       <label for="rating-${key}">${label}</label>
       <output id="rating-value-${key}">${member.ratings[key]}</output>
-      <input id="rating-${key}" data-rating="${key}" type="range" min="0" max="100" value="${member.ratings[key]}" />
+      <input id="rating-${key}" data-rating="${key}" type="range" min="0" max="${getRatingBudgetLimit(member, key)}" value="${member.ratings[key]}" />
     </div>
   `).join("");
   rosterEditor.innerHTML = `
     <div class="roster-summary">
       <strong>${selectedRosterTeam === "player" ? "YOU" : "CPU"} ${member.position}</strong>
-      <span>Position default available</span>
+      <span id="rosterBudgetValue">${getRatingTotal(member)} / ${RATING_BUDGET}</span>
     </div>
+    <p class="roster-budget-note">Rating budget</p>
     ${ratings}
     <button id="resetPlayerRatingsButton" class="reset-player-button" type="button">RESET ${member.position}</button>
   `;
@@ -3654,10 +3704,24 @@ function renderRosterEditor() {
 function updateSelectedRosterRating(rating, value) {
   const member = getRosterMember();
   if (!member || !Object.prototype.hasOwnProperty.call(RATING_LABELS, rating)) return;
-  member.ratings[rating] = readRating(value, member.ratings[rating]);
+  member.ratings[rating] = Math.min(readRating(value, member.ratings[rating]), getRatingBudgetLimit(member, rating));
   const output = document.getElementById(`rating-value-${rating}`);
   if (output) output.textContent = String(member.ratings[rating]);
+  refreshRosterBudget(member);
   saveSettings();
+}
+
+function refreshRosterBudget(member) {
+  const total = getRatingTotal(member);
+  const budgetValue = document.getElementById("rosterBudgetValue");
+  if (budgetValue) budgetValue.textContent = `${total} / ${RATING_BUDGET}`;
+  const inputs = rosterEditor?.querySelectorAll ? rosterEditor.querySelectorAll("input[data-rating]") : [];
+  inputs.forEach((input) => {
+    const rating = input.dataset.rating;
+    const limit = getRatingBudgetLimit(member, rating);
+    input.max = String(limit);
+    if (Number(input.value) > limit) input.value = String(limit);
+  });
 }
 
 function resetSelectedRosterMember() {
@@ -4626,7 +4690,7 @@ window.addEventListener("resize", resize);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=0.11.3", { updateViaCache: "none" })
+    navigator.serviceWorker.register("sw.js?v=0.11.4", { updateViaCache: "none" })
       .then((registration) => registration.update())
       .catch(() => {});
   });

@@ -79,6 +79,13 @@ const pauseState = { active: state.paused, gameClock: state.gameClock, shotClock
 setPaused(false);
 const rightHomes = getTwoThreeZoneHomes(court.rightHoop);
 const leftHomes = getTwoThreeZoneHomes(court.leftHoop);
+const positionBuilds = POSITION_ORDER.map((position) => ({
+  position,
+  total: Object.values(POSITION_DEFAULTS[position]).reduce((sum, value) => sum + value, 0),
+  size: getPositionSizeScale({ position }),
+}));
+const maxedRatings = Object.fromEntries(Object.keys(RATING_LABELS).map((rating) => [rating, 100]));
+const normalizedMaxedRatings = normalizeRatingsToBudget(maxedRatings, POSITION_DEFAULTS.PG);
 globalThis.testResult = {
   rightHomes,
   leftHomes,
@@ -88,6 +95,10 @@ globalThis.testResult = {
   lowerCorner: getTwoThreeCheckerIndex({ x: 1300, y: 720 }, court.rightHoop),
   paint: getTwoThreeCheckerIndex({ x: 1360, y: 410 }, court.rightHoop),
   pauseState,
+  positionBuilds,
+  normalizedMaxedTotal: Object.values(normalizedMaxedRatings).reduce((sum, value) => sum + value, 0),
+  pgBudgetLimit: getRatingBudgetLimit(playerRoster[0], "shot"),
+  pgShot: POSITION_DEFAULTS.PG.shot,
 };
 setPossession("cpu");
 player.x = 700;
@@ -133,7 +144,11 @@ globalThis.testResult.screenedUntil = screenedDefender.screenedUntil;
 globalThis.testResult.anchoredScreen = { x: testScreener.x, y: testScreener.y, anchoredScreenX, anchoredScreenY };
 const screenCollisionDistance = getCharacterCollisionDistance(testScreener, screenedDefender);
 const screenSlowSpeed = getCharacterMoveSpeed(screenedDefender, false, true, 0.016);
-globalThis.testResult.screenBlock = { screenCollisionDistance, screenSlowSpeed };
+globalThis.testResult.screenBlock = {
+  screenCollisionDistance,
+  expectedCollisionDistance: testScreener.r + screenedDefender.r + 24,
+  screenSlowSpeed,
+};
 clearPlayerScreen();
 getActiveCharacters().forEach((character, index) => {
   character.x = 110 + (index % 5) * 260;
@@ -567,6 +582,11 @@ vm.runInContext(`${fs.readFileSync(appPath, "utf8")}\n${assertions}`, sandbox, {
 
 const result = sandbox.testResult;
 assert.equal(result.rightHomes.length, 5);
+assert.ok(result.positionBuilds.every((build) => build.total === 480));
+assert.ok(result.positionBuilds.every((build, index, builds) => index === 0 || build.size > builds[index - 1].size));
+assert.ok(Math.abs((result.positionBuilds[4].size / result.positionBuilds[0].size) ** 2 - 2) < 0.03);
+assert.equal(result.normalizedMaxedTotal, 480);
+assert.equal(result.pgBudgetLimit, result.pgShot);
 assert.equal(result.pauseState.active, true);
 assert.equal(result.pauseState.gameClock, 100);
 assert.equal(result.pauseState.shotClock, 17);
@@ -589,7 +609,7 @@ assert.equal(result.screenPhase, "holding");
 assert.ok(result.screenedUntil > 0);
 assert.equal(result.anchoredScreen.x, result.anchoredScreen.anchoredScreenX);
 assert.equal(result.anchoredScreen.y, result.anchoredScreen.anchoredScreenY);
-assert.ok(result.screenBlock.screenCollisionDistance >= 64);
+assert.equal(result.screenBlock.screenCollisionDistance, result.screenBlock.expectedCollisionDistance);
 assert.ok(result.screenBlock.screenSlowSpeed <= 50);
 assert.ok(result.playerBlock.x <= result.playerBlock.maxX + 0.1);
 assert.ok(result.playerBlock.distance >= result.playerBlock.solidDistance - 0.1);
@@ -611,8 +631,8 @@ assert.equal(result.stealSuccess.possession, "player");
 assert.equal(result.stealSuccess.handler, "player");
 assert.equal(result.stealSuccess.shotClock, 24);
 assert.equal(result.stealSuccess.positionsUnchanged, true);
-assert.ok(result.stealDifficulty.close > 0.8);
-assert.ok(result.stealDifficulty.reach < 0.13);
+assert.ok(result.stealDifficulty.close > 0.7);
+assert.ok(result.stealDifficulty.reach < 0.1);
 assert.ok(result.stealDifficulty.far <= 0.06);
 assert.equal(result.stealFailure.possession, "cpu");
 assert.ok(result.stealFailure.recovery > result.stealFailure.now);
