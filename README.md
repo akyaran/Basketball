@@ -1,6 +1,6 @@
-# Basketball 1v1 Prototype
+# Basketball Prototype
 
-Version: `0.9.0`
+Version: `0.12.0`
 
 iPad landscape first basketball prototype for testing shot feel and small-team to 5v5 spacing. Player defense is automatic until the stick is moved, PASS switches the controlled defender, live passes can be intercepted by either team, and nearby defenders can use a timing-based steal attempt.
 
@@ -24,9 +24,8 @@ http://localhost:4173/
 - Dash button: quick burst
 - STAMINA: shows the active player stamina, and dash drains it before recovering at normal speed.
 - SHOT in TIMING mode: hold, release when the needle hits the green zone
-- SHOT in AIM mode: hold, pull to aim and set power, release
 - SLOW ON/OFF: toggles shot slow motion for A/B testing
-- Settings: choose 1on1, 2on2, 3on3, or 5on5, then tune defense effect, distance effect, meter speed, character size, movement speed, camera zoom, and game time before starting
+- Settings: choose 1on1, 2on2, 3on3, or 5on5, CPU difficulty, then tune defense effect, distance effect, meter speed, character size, movement speed, camera zoom, and game time before starting
 - HOME: return to the title screen during play
 - Reset Defaults: restore the tuning sliders to their default values
 - After a player make or miss, possession switches to CPU offense and the player defends.
@@ -69,6 +68,18 @@ At near body-contact range the contest almost removes the make window, and shots
 In timing mode, releasing inside the green zone is treated as a made shot unless the attempt is fully smothered or an extreme half-court attempt.
 
 Touch controls suppress text selection and long-press browser actions so the shot and dash buttons behave like game controls.
+
+## AI training
+
+The game uses a shared tactical policy for the browser AI and local simulation. The policy is intentionally lightweight: Easy, Normal, and Hard change decision timing and noise only, never player speed, stamina, ratings, or hidden shot bonuses.
+
+Run a local CPU training session with the bundled or system Node.js runtime:
+
+```powershell
+node tools/train-ai.cjs --minutes 45 --workers auto --seed 20260718
+```
+
+The command uses all logical CPU cores except one, writes resumable metrics under `training-runs/`, evaluates offense and defense against shared seeded scenarios, and replaces `ai-policy.generated.js` only when the candidate clears its promotion gates. A 30-minute run is a practical first pass; longer runs can reuse the same command.
 
 ## GitHub Pages
 

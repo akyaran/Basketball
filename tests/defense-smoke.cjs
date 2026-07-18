@@ -648,6 +648,39 @@ const lowSteal = { chance: getStealSuccessChance(58), zone: getStealTimingZoneFo
 settings.stealSuccess = 1;
 const highSteal = { chance: getStealSuccessChance(58), zone: getStealTimingZoneForDistance(48).size };
 globalThis.testResult.stealSetting = { lowSteal, highSteal };
+settings.players = "5v5";
+setPossession("cpu");
+state.started = true;
+state.gameOver = false;
+state.gameClock = 90;
+state.shotClock = 14;
+const cpuShooter = getCpuHandler();
+const cpuFlightStart = getActiveCharacters().map((member) => ({ member, x: member.x, y: member.y }));
+state.ball = {
+  owner: "cpu", shooterKey: getCpuKey(cpuShooter), startX: cpuShooter.x, startY: cpuShooter.y,
+  x: cpuShooter.x, y: cpuShooter.y, targetX: court.leftHoop.x, targetY: court.leftHoop.y,
+  t: 0, duration: 1, made: false, quality: 0.3, points: 2, scored: false,
+};
+update(0.18);
+const cpuFlightMoved = cpuFlightStart.filter(({ member, x, y }) => member !== cpuShooter && distance(member, { x, y }) > 0.1).length;
+state.ball = null;
+setPossession("player");
+const playerShooter = getPlayerHandler();
+const playerFlightStart = getActiveCharacters().map((member) => ({ member, x: member.x, y: member.y }));
+state.ball = {
+  owner: "player", shooterKey: getPlayerKey(playerShooter), startX: playerShooter.x, startY: playerShooter.y,
+  x: playerShooter.x, y: playerShooter.y, targetX: court.rightHoop.x, targetY: court.rightHoop.y,
+  t: 0, duration: 1, made: false, quality: 0.3, points: 2, scored: false,
+};
+update(0.18);
+const playerFlightMoved = playerFlightStart.filter(({ member, x, y }) => member !== playerShooter && distance(member, { x, y }) > 0.1).length;
+const playerFlightBallActive = Boolean(state.ball);
+state.ball = null;
+setPossession("cpu");
+state.cpuPassCooldown = 0;
+const fiveOnFivePassTarget = getCpuOffBalls()[0];
+passCpuBallTo(fiveOnFivePassTarget);
+globalThis.testResult.shotFlight = { cpuFlightMoved, playerFlightMoved, cpuBallActive: playerFlightBallActive, fiveOnFivePass: state.passBall?.nextHandler === getCpuKey(fiveOnFivePassTarget) };
 `;
 
 vm.createContext(sandbox);
@@ -818,4 +851,8 @@ assert.equal(result.twoPointNoCelebration.ballStart.x, 1488);
 assert.equal(result.twoPointNoCelebration.ballStart.y, 410);
 assert.ok(result.stealSetting.highSteal.chance > result.stealSetting.lowSteal.chance);
 assert.ok(result.stealSetting.highSteal.zone > result.stealSetting.lowSteal.zone);
+assert.ok(result.shotFlight.cpuFlightMoved >= 7);
+assert.ok(result.shotFlight.playerFlightMoved >= 7);
+assert.equal(result.shotFlight.cpuBallActive, true);
+assert.equal(result.shotFlight.fiveOnFivePass, true);
 console.log("Turnover, steal, defense, screen-play, and collision smoke test passed");

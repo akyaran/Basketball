@@ -1,9 +1,11 @@
-const CACHE_NAME = "basketball-1v1-v70";
+const CACHE_NAME = "basketball-1v1-v71";
 const ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
+  "./ai-policy.js",
+  "./ai-policy.generated.js",
   "./manifest.json",
   "./assets/court.png",
   "./assets/hoop.png",
