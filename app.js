@@ -70,7 +70,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.12.0";
+const APP_VERSION = "0.12.1";
 const SETTINGS_KEY = "basketball-settings-v2";
 const LEGACY_SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
@@ -3242,13 +3242,15 @@ function swapPlayerManAssignments(first, second) {
 
 function isPlayerManHelpNeeded(handler, primary) {
   if (!primary) return false;
+  const tuning = getAiDefenseTuning();
   const rimDistance = distance(handler, getAttackHoop("cpu"));
   const front = getDefenderFrontStrength(handler, primary);
-  return rimDistance < 430 && (front < 0.5 || distance(handler, primary) > 105);
+  return rimDistance < 430 && (front < tuning.helpTrigger || distance(handler, primary) > tuning.helpCushion);
 }
 
 function getPlayerManHelper(handler, primary, team, controlledDefender) {
-  const helpSpot = getFrontGuardSpot(handler, state.timingActive ? 58 : 72);
+  const tuning = getAiDefenseTuning();
+  const helpSpot = getFrontGuardSpot(handler, state.timingActive ? 58 : tuning.helpCushion);
   const hoop = getAttackHoop("cpu");
   return team
     .filter((member) => member !== primary && member !== controlledDefender)
@@ -5048,7 +5050,7 @@ window.addEventListener("resize", resize);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=0.12.0", { updateViaCache: "none" })
+    navigator.serviceWorker.register("sw.js?v=0.12.1", { updateViaCache: "none" })
       .then((registration) => registration.update())
       .catch(() => {});
   });

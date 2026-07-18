@@ -1,6 +1,6 @@
 # Basketball Prototype
 
-Version: `0.12.0`
+Version: `0.12.1`
 
 iPad landscape first basketball prototype for testing shot feel and small-team to 5v5 spacing. Player defense is automatic until the stick is moved, PASS switches the controlled defender, live passes can be intercepted by either team, and nearby defenders can use a timing-based steal attempt.
 

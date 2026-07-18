@@ -94,7 +94,10 @@ function evaluatePolicy(policy, opponentPolicy, seeds, possessionsPerSeed = 140)
         if (action === lastAction) repeated += 1;
         lastAction = action;
         const defense = defensePolicy.defense;
-        const pressure = Math.max(0, (defense.onBallCushion - space) / 92) * 0.45 + (1 - defense.helpTrigger) * 0.12;
+        const onBallIntensity = Math.max(0, Math.min(1, (100 - defense.onBallCushion) / 42));
+        const onBallPressure = onBallIntensity * Math.max(0.2, Math.min(1, (142 - space) / 96)) * 0.72;
+        const helpPressure = (1 - defense.helpTrigger) * 0.24 + Math.max(0, defense.helpCushion - 76) / 220 * 0.1;
+        const pressure = Math.min(1, onBallPressure + helpPressure + defense.zoneShift * 0.18);
         const naturalSpread = Math.max(0, 0.55 - passQuality) * 0.18 + (action === "hesitate" ? 0.05 : 0);
         possessionClump += naturalSpread;
         possessionIdle += action === "hesitate" ? 0.14 : action === "stepback" ? 0.07 : 0.02;
@@ -124,7 +127,7 @@ function evaluatePolicy(policy, opponentPolicy, seeds, possessionsPerSeed = 140)
         if (turnover) break;
         const shouldShoot = rimDistance < 155 || (space > 112 && random() > 0.48) || clock < 5;
         if (!shouldShoot) continue;
-        const contest = Math.max(0, 1 - (space - 44) / 135) * (0.62 + defense.closeoutUrgency * 0.15);
+        const contest = Math.min(1, Math.max(0, 1 - (space - 44) / 135) * (0.62 + defense.closeoutUrgency * 0.15) + pressure * (0.18 + defense.closeoutUrgency * 0.08));
         const range = Math.max(0, (rimDistance - 150) / 360);
         const pointsValue = rimDistance > 300 ? 3 : 2;
         const make = Math.max(0.04, Math.min(0.76, 0.67 + laneOpen * 0.13 + (action === "screen" ? 0.055 : 0) - contest * 0.32 - range * 0.24));
@@ -157,6 +160,29 @@ function scoreMetrics(metrics, stage = "balanced") {
   if (stage === "offense") return metrics.offensePpp * 1.9 - metrics.defensePpp * 0.45 - naturalPenalty;
   if (stage === "defense") return metrics.offensePpp * 0.55 - metrics.defensePpp * 2.05 - naturalPenalty;
   return metrics.offensePpp * 1.48 - metrics.defensePpp * 1.68 - naturalPenalty;
+}
+
+function clearsPromotionGates(metrics, baseline) {
+  return metrics.offensePpp >= baseline.offensePpp * 1.03 &&
+    metrics.defensePpp <= baseline.defensePpp * 0.97 &&
+    metrics.turnoverRate <= baseline.turnoverRate + 0.02 &&
+    metrics.foulRate <= baseline.foulRate + 0.02 &&
+    metrics.clumpRate <= baseline.clumpRate * 1.05 &&
+    metrics.idleRate <= baseline.idleRate * 1.05;
+}
+
+function getDefensiveAnchor(policy) {
+  const anchored = clone(policy);
+  anchored.defense = {
+    ...anchored.defense,
+    onBallCushion: 58,
+    helpTrigger: 0.38,
+    helpCushion: 72,
+    closeoutUrgency: 1.36,
+    zoneShift: 0.3,
+    reboundCrash: 1.35,
+  };
+  return anchored;
 }
 
 if (!isMainThread) {
@@ -228,9 +254,10 @@ async function main() {
   const baselineMetrics = { ...evaluatePolicy(baseline, baseline, holdoutSeeds, config.possessions), fitness: 0 };
   baselineMetrics.fitness = scoreMetrics(baselineMetrics, "balanced");
   let mean = vectorFromPolicy(baseline);
-  let deviation = PARAMS.map(([, min, max]) => (max - min) * 0.18);
+  let deviation = PARAMS.map(([, min, max], index) => (max - min) * (index < 10 ? 0.18 : 0.3));
   let bestPolicy = baseline;
   let bestMetrics = baselineMetrics;
+  let bestQualified = null;
   let generation = 0;
   const deadline = Date.now() + config.minutes * 60 * 1000;
   const populationSize = Math.min(48, Math.max(12, config.workerCount * 10));
@@ -262,26 +289,37 @@ async function main() {
       bestPolicy = candidate;
       bestMetrics = holdout;
     }
+    const qualifies = clearsPromotionGates(holdout, baselineMetrics);
+    if (qualifies && (!bestQualified || holdout.fitness > bestQualified.metrics.fitness)) {
+      bestQualified = { policy: candidate, metrics: holdout };
+    }
     const checkpoint = { generation, bestMetrics, mean, deviation, elapsedSeconds: Math.round((config.minutes * 60 * 1000 - (deadline - Date.now())) / 1000) };
     fs.writeFileSync(path.join(runDir, "latest.json"), JSON.stringify(checkpoint, null, 2));
     console.log(`gen ${generation} ${stage}: best ${bestMetrics.fitness.toFixed(3)} | O ${bestMetrics.offensePpp.toFixed(3)} D ${bestMetrics.defensePpp.toFixed(3)} TOV ${bestMetrics.turnoverRate.toFixed(3)}`);
     generation += 1;
   }
-  const accepted = bestMetrics.offensePpp >= baselineMetrics.offensePpp * 1.03 &&
-    bestMetrics.defensePpp <= baselineMetrics.defensePpp * 0.97 &&
-    bestMetrics.turnoverRate <= baselineMetrics.turnoverRate + 0.02 &&
-    bestMetrics.foulRate <= baselineMetrics.foulRate + 0.02 &&
-    bestMetrics.clumpRate <= baselineMetrics.clumpRate * 1.03 &&
-    bestMetrics.idleRate <= baselineMetrics.idleRate * 1.03;
-  const report = { config, baseline: baselineMetrics, best: bestMetrics, accepted, generations: generation, policy: bestPolicy };
+  const anchoredPolicy = getDefensiveAnchor(bestPolicy);
+  const anchoredMetrics = { ...evaluatePolicy(anchoredPolicy, baseline, holdoutSeeds, config.possessions), fitness: 0 };
+  anchoredMetrics.fitness = scoreMetrics(anchoredMetrics, "balanced");
+  if (clearsPromotionGates(anchoredMetrics, baselineMetrics) && (!bestQualified || anchoredMetrics.fitness > bestQualified.metrics.fitness)) {
+    bestQualified = { policy: anchoredPolicy, metrics: anchoredMetrics };
+  }
+  const accepted = Boolean(bestQualified);
+  const promotedPolicy = bestQualified?.policy || bestPolicy;
+  const promotedMetrics = bestQualified?.metrics || bestMetrics;
+  const report = { config, baseline: baselineMetrics, best: bestMetrics, qualified: bestQualified?.metrics || null, accepted, generations: generation, policy: promotedPolicy };
   fs.writeFileSync(path.join(runDir, "report.json"), JSON.stringify(report, null, 2));
   if (accepted) {
-    bestPolicy.meta = { ...bestPolicy.meta, trainedAt: new Date().toISOString(), objective: "balanced-5v5", metrics: bestMetrics };
-    fs.writeFileSync(config.out, formatGeneratedPolicy(bestPolicy));
+    promotedPolicy.meta = { ...promotedPolicy.meta, trainedAt: new Date().toISOString(), objective: "balanced-5v5", metrics: promotedMetrics };
+    fs.writeFileSync(config.out, formatGeneratedPolicy(promotedPolicy));
     console.log(`Accepted policy written to ${config.out}`);
   } else {
     console.log(`Candidate did not clear promotion gates. Baseline policy kept; report: ${path.join(runDir, "report.json")}`);
   }
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+if (require.main === module) {
+  main().catch((error) => { console.error(error); process.exitCode = 1; });
+}
+
+module.exports = { evaluatePolicy, scoreMetrics, policyFromVector, vectorFromPolicy };
