@@ -7,9 +7,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Basketball Prototype</title>
-    <link rel="manifest" href="manifest.json?v=0.11.5" />
+    <link rel="manifest" href="manifest.json?v=0.11.6" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=0.11.5" />
+    <link rel="stylesheet" href="styles.css?v=0.11.6" />
   </head>
   <body>
     <main class="game-shell">
@@ -27,9 +27,9 @@
           <small>24</small>
           <strong id="shotClock">24.0</strong>
         </div>
-        <div class="mode-switch" role="group" aria-label="シュート方式">
-          <button id="aimMode" type="button">AIM</button>
-          <button id="timingMode" class="active" type="button">TIMING</button>
+        <div id="defenseSchemeSwitch" class="mode-switch" role="group" aria-label="守備方式">
+          <button id="manDefenseMode" type="button">MAN</button>
+          <button id="zoneDefenseMode" class="active" type="button">2-3</button>
         </div>
         <button id="homeButton" class="home-button" type="button">HOME</button>
         <button id="pauseButton" class="pause-button" type="button" aria-label="Pause" aria-pressed="false" title="Pause">||</button>
@@ -189,6 +189,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=0.11.5"></script>
+    <script src="app.js?v=0.11.6"></script>
   </body>
 </html>

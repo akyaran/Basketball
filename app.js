@@ -6,8 +6,9 @@ const shootButton = document.getElementById("shootButton");
 const dashButton = document.getElementById("dashButton");
 const screenButton = document.getElementById("screenButton");
 const passButton = document.getElementById("passButton");
-const aimModeButton = document.getElementById("aimMode");
-const timingModeButton = document.getElementById("timingMode");
+const defenseSchemeSwitch = document.getElementById("defenseSchemeSwitch");
+const manDefenseModeButton = document.getElementById("manDefenseMode");
+const zoneDefenseModeButton = document.getElementById("zoneDefenseMode");
 const slowToggle = document.getElementById("slowToggle");
 const homeButton = document.getElementById("homeButton");
 const pauseButton = document.getElementById("pauseButton");
@@ -68,7 +69,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.11.5";
+const APP_VERSION = "0.11.6";
 const SETTINGS_KEY = "basketball-settings-v2";
 const LEGACY_SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
@@ -86,6 +87,7 @@ const DEFAULT_SETTINGS = {
   cameraZoom: 0.8,
   players: "5v5",
   gameSeconds: 180,
+  defenseScheme: "zone",
 };
 const BASE_PLAYER_RADIUS = 21;
 const BASE_CPU_RADIUS = BASE_PLAYER_RADIUS;
@@ -103,8 +105,6 @@ const input = {
   joyStartX: 0,
   joyStartY: 0,
   shootingId: null,
-  shotStartX: 0,
-  shotStartY: 0,
 };
 
 const state = {
@@ -117,7 +117,6 @@ const state = {
   viewH: 620,
   started: false,
   paused: false,
-  mode: "timing",
   time: 0,
   last: performance.now(),
   slowEnabled: true,
@@ -140,6 +139,8 @@ const state = {
   playerHandler: "player",
   playerDefenderKey: "player",
   manualDefense: false,
+  playerManAssignments: {},
+  playerDefenseRotationUntil: 0,
   cpuHandler: "defender",
   passBall: null,
   freeThrow: null,
@@ -161,8 +162,6 @@ const state = {
   stealAttempt: null,
   offensivePaintSeconds: {},
   paintWarningKey: null,
-  shotCharge: 0,
-  aimVector: { x: 0, y: -1 },
   particles: [],
   ball: null,
 };
@@ -703,12 +702,20 @@ function showMessage(text) {
   toast.classList.add("show");
 }
 
-function setMode(mode) {
-  state.mode = mode;
-  aimModeButton.classList.toggle("active", mode === "aim");
-  timingModeButton.classList.toggle("active", mode === "timing");
-  meter.classList.toggle("show", mode === "timing" && state.timingActive);
-  showMessage(mode === "aim" ? "AIM: hold, pull, release" : "TIMING: release in the green");
+function syncDefenseSchemeControls() {
+  const isMan = settings.defenseScheme === "man";
+  manDefenseModeButton.classList.toggle("active", isMan);
+  zoneDefenseModeButton.classList.toggle("active", !isMan);
+  defenseSchemeSwitch.hidden = !isFiveOnFive();
+}
+
+function setDefenseScheme(scheme, announce = true) {
+  settings.defenseScheme = scheme === "man" ? "man" : "zone";
+  if (settings.defenseScheme === "man") resetPlayerManAssignments();
+  else state.playerDefenseRotationUntil = 0;
+  syncDefenseSchemeControls();
+  saveSettings();
+  if (announce) showMessage(settings.defenseScheme === "man" ? "Defense: Man" : "Defense: 2-3 Zone");
 }
 
 function setSlowEnabled(enabled, announce = true) {
@@ -753,6 +760,7 @@ function getSettingsSnapshot() {
     cameraZoom: settings.cameraZoom,
     gameSeconds: settings.gameSeconds,
     players: settings.players,
+    defenseScheme: settings.defenseScheme,
   };
 }
 
@@ -766,6 +774,7 @@ function applySettingsSnapshot(snapshot) {
   settings.cameraZoom = readSetting(snapshot?.cameraZoom, DEFAULT_SETTINGS.cameraZoom);
   settings.gameSeconds = readGameSeconds(snapshot?.gameSeconds, DEFAULT_SETTINGS.gameSeconds);
   settings.players = snapshot?.players === "5v5" ? "5v5" : snapshot?.players === "3v3" ? "3v3" : snapshot?.players === "2v2" ? "2v2" : "1v1";
+  settings.defenseScheme = snapshot?.defenseScheme === "man" ? "man" : "zone";
 }
 
 function getRosterSnapshot() {
@@ -927,6 +936,7 @@ function applySettingsToControls() {
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
   mode3v3Button.classList.toggle("active", settings.players === "3v3");
   mode5v5Button.classList.toggle("active", settings.players === "5v5");
+  syncDefenseSchemeControls();
 }
 
 function renderPresetOptions() {
@@ -1174,6 +1184,7 @@ function setPossession(possession) {
   state.playerHandler = getDefaultHandlerKey("player");
   state.manualDefense = false;
   state.playerDefenderKey = getDefaultHandlerKey("player");
+  resetPlayerManAssignments();
   state.cpuHandler = getDefaultHandlerKey("cpu");
   state.cpuShotTimer = possession === "cpu" ? 1.35 : 0;
   state.cpuDrivePhase = Math.random() * Math.PI * 2;
@@ -1189,7 +1200,6 @@ function setPossession(possession) {
   for (const member of playerRoster) setCharacterPosition(member, spots[getPlayerKey(member)]);
   for (const member of cpuRoster) setCharacterPosition(member, spots[getCpuKey(member)]);
   state.ball = null;
-  state.shotCharge = 0;
   state.timingActive = false;
   state.timingAction = null;
   state.stealAttempt = null;
@@ -1389,7 +1399,6 @@ function beginPossessionTransition(nextPossession, ballX, ballY, options = {}) {
   state.recoveryBall = { x: ballX, y: ballY };
   state.ball = null;
   state.passBall = null;
-  state.shotCharge = 0;
   state.timingActive = false;
   state.timingAction = null;
   state.stealAttempt = null;
@@ -1590,7 +1599,6 @@ function beginFreeThrows(owner, shooter) {
   state.ball = null;
   state.rebound = null;
   state.recoveryBall = null;
-  state.shotCharge = 0;
   state.dunkFx = null;
   clearTimingAction();
   state.freeThrow = {
@@ -1669,7 +1677,6 @@ function advanceTimingMeter(dt, step) {
   if (state.timingAction === "steal" && state.stealAttempt?.invalid) {
     failStealAttempt();
   }
-  state.shotCharge = state.timingValue;
 }
 
 function startFreeThrow(pointer) {
@@ -1993,7 +2000,6 @@ function finishPossessionTransitionAtSpots(possession, receiverKey = null) {
   state.shotClock = 24;
   resetOffensivePaintClocks();
   state.ball = null;
-  state.shotCharge = 0;
   state.timingActive = false;
   state.timingAction = null;
   state.stealAttempt = null;
@@ -2040,21 +2046,15 @@ function startShot(pointer) {
   }
 
   input.shootingId = pointer.pointerId;
-  input.shotStartX = pointer.clientX;
-  input.shotStartY = pointer.clientY;
-  state.shotCharge = 0.08;
   state.slowUntil = state.time + 1000;
-
-  if (state.mode === "timing") {
-    state.timingActive = true;
-    state.timingAction = "shot";
-    state.timingValue = 0;
-    state.timingDir = 1;
-    state.timingHold = 0;
-    state.timingStartContest = getContestPressure();
-    updateActiveTimingZone();
-    meter.classList.add("show");
-  }
+  state.timingActive = true;
+  state.timingAction = "shot";
+  state.timingValue = 0;
+  state.timingDir = 1;
+  state.timingHold = 0;
+  state.timingStartContest = getContestPressure();
+  updateActiveTimingZone();
+  meter.classList.add("show");
 }
 
 function startSteal(pointer) {
@@ -2087,18 +2087,6 @@ function startSteal(pointer) {
   showMessage("Steal timing");
 }
 
-function updateShotDrag(pointer) {
-  if (input.shootingId !== pointer.pointerId) return;
-  const dx = input.shotStartX - pointer.clientX;
-  const dy = input.shotStartY - pointer.clientY;
-  const length = Math.hypot(dx, dy);
-  if (length > 8) {
-    state.aimVector.x = dx / length;
-    state.aimVector.y = dy / length;
-  }
-  state.shotCharge = clamp(length / 150, 0.08, 1);
-}
-
 function releaseShot(pointer) {
   if (input.shootingId !== pointer.pointerId) return;
   input.shootingId = null;
@@ -2110,25 +2098,7 @@ function releaseShot(pointer) {
     resolveFreeThrowTiming();
     return;
   }
-  if (state.mode === "timing") {
-    shootTiming();
-  } else {
-    shootAim();
-  }
-}
-
-function shootAim() {
-  const shooter = getPlayerHandler();
-  const hoop = getAttackHoop("player");
-  const hoopVector = {
-    x: hoop.x - shooter.x,
-    y: hoop.y - shooter.y,
-  };
-  const hoopLength = Math.hypot(hoopVector.x, hoopVector.y);
-  const perfect = { x: hoopVector.x / hoopLength, y: hoopVector.y / hoopLength };
-  const angleFit = (state.aimVector.x * perfect.x + state.aimVector.y * perfect.y + 1) / 2;
-  const distanceFit = 1 - clamp(Math.abs(0.68 - state.shotCharge) / 0.68, 0, 1);
-  launchShot(angleFit * 0.62 + distanceFit * 0.38, "aim", false);
+  shootTiming();
 }
 
 function shootTiming() {
@@ -2243,7 +2213,6 @@ function launchShot(skill, source, perfectTiming) {
     points: isThreePoint(shooter) ? 3 : 2,
     scored: false,
   };
-  state.shotCharge = 0;
   shooter.cooldown = 0.7;
   state.slowUntil = state.time + 360;
   shotReadout.textContent = perfectTiming ? "Green" : quality > 0.8 ? "Clean" : quality > 0.58 ? "Good" : "Tough";
@@ -2324,7 +2293,6 @@ function launchFinish(owner, kind, quality) {
     scored: false,
   };
   offense.cooldown = 0.72;
-  state.shotCharge = 0;
   state.timingActive = false;
   state.timingHold = 0;
   meter.classList.remove("show");
@@ -2616,7 +2584,6 @@ function commitLiveTurnover(possession, interceptor, message) {
   state.cpuPassCooldown = 0.5;
   state.shotClock = 24;
   resetOffensivePaintClocks();
-  state.shotCharge = 0;
   state.timingStartContest = 0;
   state.dunkFx = null;
   clearTimingAction();
@@ -3172,6 +3139,136 @@ function getTwoThreeShellSpot(home, handler, hoop, index) {
   };
 }
 
+function resetPlayerManAssignments() {
+  state.playerManAssignments = {};
+  state.playerDefenseRotationUntil = 0;
+  if (!isFiveOnFive()) return;
+  const availableMarks = [...getCpuTeam()];
+  getPlayerTeam().forEach((defender) => {
+    const samePosition = availableMarks.find((mark) => mark.position === defender.position);
+    const mark = samePosition || availableMarks[0];
+    if (!mark) return;
+    state.playerManAssignments[getPlayerKey(defender)] = getCpuKey(mark);
+    availableMarks.splice(availableMarks.indexOf(mark), 1);
+  });
+}
+
+function ensurePlayerManAssignments() {
+  if (!isFiveOnFive()) return;
+  const team = getPlayerTeam();
+  const cpu = getCpuTeam();
+  const assigned = Object.values(state.playerManAssignments);
+  const valid = team.every((member) => state.playerManAssignments[getPlayerKey(member)]) &&
+    assigned.length === team.length &&
+    new Set(assigned).size === assigned.length &&
+    assigned.every((key) => cpu.some((member) => getCpuKey(member) === key));
+  if (!valid) resetPlayerManAssignments();
+}
+
+function getPlayerManMark(defender) {
+  ensurePlayerManAssignments();
+  const key = state.playerManAssignments[getPlayerKey(defender)];
+  return getCpuTeam().find((member) => getCpuKey(member) === key) || null;
+}
+
+function getPlayerManDefender(mark) {
+  ensurePlayerManAssignments();
+  const markKey = getCpuKey(mark);
+  return getPlayerTeam().find((member) => state.playerManAssignments[getPlayerKey(member)] === markKey) || null;
+}
+
+function swapPlayerManAssignments(first, second) {
+  if (!first || !second || first === second) return false;
+  const firstKey = getPlayerKey(first);
+  const secondKey = getPlayerKey(second);
+  const firstMark = state.playerManAssignments[firstKey];
+  const secondMark = state.playerManAssignments[secondKey];
+  if (!firstMark || !secondMark) return false;
+  state.playerManAssignments[firstKey] = secondMark;
+  state.playerManAssignments[secondKey] = firstMark;
+  state.playerDefenseRotationUntil = state.time + 700;
+  return true;
+}
+
+function isPlayerManHelpNeeded(handler, primary) {
+  if (!primary) return false;
+  const rimDistance = distance(handler, getAttackHoop("cpu"));
+  const front = getDefenderFrontStrength(handler, primary);
+  return rimDistance < 430 && (front < 0.5 || distance(handler, primary) > 105);
+}
+
+function getPlayerManHelper(handler, primary, team, controlledDefender) {
+  const helpSpot = getFrontGuardSpot(handler, state.timingActive ? 58 : 72);
+  const hoop = getAttackHoop("cpu");
+  return team
+    .filter((member) => member !== primary && member !== controlledDefender)
+    .map((member) => {
+      const mark = getPlayerManMark(member);
+      const onePassAway = mark && distance(mark, handler) < 295;
+      const goalSide = getDefenderFrontStrength(handler, member);
+      return {
+        member,
+        score: distance(member, helpSpot) - goalSide * 44 + distance(member, hoop) * 0.08 + (onePassAway ? 32 : 0),
+      };
+    })
+    .sort((a, b) => a.score - b.score)[0]?.member || null;
+}
+
+function tryPlayerManFreeRotation(handler, team, controlledDefender) {
+  if (state.time < state.playerDefenseRotationUntil) return false;
+  const primary = getPlayerManDefender(handler);
+  const options = [];
+  getCpuTeam().forEach((mark) => {
+    if (mark === handler) return;
+    const assigned = getPlayerManDefender(mark);
+    if (!assigned || assigned === controlledDefender || distance(assigned, mark) < 158) return;
+    const replacement = team
+      .filter((member) => member !== assigned && member !== primary && member !== controlledDefender)
+      .map((member) => ({ member, gain: distance(assigned, mark) - distance(member, mark) }))
+      .filter((candidate) => candidate.gain >= 46)
+      .sort((a, b) => b.gain - a.gain)[0];
+    if (replacement) options.push({ assigned, replacement: replacement.member, gain: replacement.gain });
+  });
+  const best = options.sort((a, b) => b.gain - a.gain)[0];
+  return best ? swapPlayerManAssignments(best.assigned, best.replacement) : false;
+}
+
+function getPlayerManOffBallSpot(defender, mark, handler) {
+  const hoop = getAttackHoop("cpu");
+  const onePassAway = distance(mark, handler) < 295;
+  const markWeight = onePassAway ? 0.68 : 0.52;
+  const ballWeight = onePassAway ? 0.17 : 0.13;
+  const hoopWeight = 1 - markWeight - ballWeight;
+  return {
+    x: clamp(mark.x * markWeight + handler.x * ballWeight + hoop.x * hoopWeight, 80, court.w - 80),
+    y: clamp(mark.y * markWeight + handler.y * ballWeight + hoop.y * hoopWeight, 72, court.h - 72),
+  };
+}
+
+function updateFiveOnFiveManDefense(handler, step, controlledDefender = null) {
+  const team = getPlayerTeam();
+  ensurePlayerManAssignments();
+  let primary = getPlayerManDefender(handler);
+  if (state.time >= state.playerDefenseRotationUntil && isPlayerManHelpNeeded(handler, primary)) {
+    const helper = getPlayerManHelper(handler, primary, team, controlledDefender);
+    if (helper && swapPlayerManAssignments(primary, helper)) primary = helper;
+  } else {
+    tryPlayerManFreeRotation(handler, team, controlledDefender);
+    primary = getPlayerManDefender(handler);
+  }
+
+  team.forEach((defender) => {
+    if (defender === controlledDefender) return;
+    const mark = getPlayerManMark(defender);
+    if (!mark) return;
+    if (mark === handler) {
+      guardPlayer(defender, handler, step, 1.15, { cushion: state.timingActive ? 58 : 78 });
+      return;
+    }
+    moveCharacterToward(defender, getPlayerManOffBallSpot(defender, mark, handler), step, false, 4);
+  });
+}
+
 function moveOffBallPlayer(agent, handler, step, index = 0) {
   if (!isTwoOnTwo() || agent === handler) return;
   if (getOffensivePaintSeconds("player", agent) >= AI_PAINT_EXIT_SECONDS) {
@@ -3383,7 +3480,8 @@ function getCpuPassUrgency(handler, target, handlerSpace) {
 function updatePlayerHelpDefense(step, handler) {
   const manualDefender = state.manualDefense ? getPlayerControlledDefender() : null;
   if (isFiveOnFive()) {
-    updateFiveOnFiveTwoThreeDefense(getPlayerTeam(), handler, step, manualDefender);
+    if (settings.defenseScheme === "man") updateFiveOnFiveManDefense(handler, step, manualDefender);
+    else updateFiveOnFiveTwoThreeDefense(getPlayerTeam(), handler, step, manualDefender);
     return;
   }
   if (!isTwoOnTwo()) {
@@ -3691,6 +3789,7 @@ function syncSettings() {
   mode2v2Button.classList.toggle("active", settings.players === "2v2");
   mode3v3Button.classList.toggle("active", settings.players === "3v3");
   mode5v5Button.classList.toggle("active", settings.players === "5v5");
+  syncDefenseSchemeControls();
   passButton.hidden = getPlayerCount() < 2;
   screenButton.hidden = getPlayerCount() < 2;
   applyCharacterSettings();
@@ -4157,9 +4256,7 @@ function updateHud() {
     shotReadout.textContent = finish.kind === "dunk" ? "Dunk" : "Layup";
     return;
   }
-  if (!input.shootingId && !state.timingActive && player.cooldown <= 0) {
-    shotReadout.textContent = state.mode === "aim" ? "Hold" : "Tap-hold";
-  }
+  if (!input.shootingId && !state.timingActive && player.cooldown <= 0) shotReadout.textContent = "Tap-hold";
 }
 
 function formatGameClock(seconds) {
@@ -4193,7 +4290,6 @@ function drawCourt() {
   for (const p of getCpuTeam()) drawCharacter(p, false);
   for (const p of getPlayerTeam()) drawCharacter(p, true);
   drawPassTargetIndicator();
-  drawAimPreview();
   drawBall();
   drawPassBall();
   drawRecoveryBall();
@@ -4505,21 +4601,6 @@ function drawCarriedBall(p, angle, pose = getCharacterAnimationPose(p)) {
   ctx.stroke();
 }
 
-function drawAimPreview() {
-  if (!input.shootingId || state.mode !== "aim") return;
-  const shooter = getPlayerHandler();
-  const targetX = shooter.x + state.aimVector.x * (180 + state.shotCharge * 220);
-  const targetY = shooter.y + state.aimVector.y * (180 + state.shotCharge * 220);
-  ctx.strokeStyle = `rgba(153, 214, 194, ${0.36 + state.shotCharge * 0.46})`;
-  ctx.lineWidth = 5;
-  ctx.setLineDash([14, 14]);
-  ctx.beginPath();
-  ctx.moveTo(shooter.x, shooter.y - 15);
-  ctx.quadraticCurveTo((shooter.x + targetX) / 2, shooter.y - 150, targetX, targetY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-}
-
 function drawPassTargetIndicator() {
   const target = getCurrentPlayerPassTarget();
   if (!target) return;
@@ -4700,10 +4781,6 @@ shootButton.addEventListener("pointerdown", (event) => {
   shootButton.setPointerCapture(event.pointerId);
   startShot(event);
 });
-shootButton.addEventListener("pointermove", (event) => {
-  event.preventDefault();
-  updateShotDrag(event);
-});
 shootButton.addEventListener("pointerup", (event) => {
   event.preventDefault();
   releaseShot(event);
@@ -4747,8 +4824,8 @@ passButton.addEventListener("pointerdown", (event) => {
 passButton.addEventListener("contextmenu", (event) => event.preventDefault());
 passButton.addEventListener("selectstart", (event) => event.preventDefault());
 
-aimModeButton.addEventListener("click", () => setMode("aim"));
-timingModeButton.addEventListener("click", () => setMode("timing"));
+manDefenseModeButton.addEventListener("click", () => setDefenseScheme("man"));
+zoneDefenseModeButton.addEventListener("click", () => setDefenseScheme("zone"));
 slowToggle.addEventListener("click", () => setSlowEnabled(!state.slowEnabled));
 homeButton.addEventListener("click", returnToTitle);
 pauseButton.addEventListener("click", () => setPaused(!state.paused));
@@ -4815,7 +4892,7 @@ window.addEventListener("resize", resize);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=0.11.5", { updateViaCache: "none" })
+    navigator.serviceWorker.register("sw.js?v=0.11.6", { updateViaCache: "none" })
       .then((registration) => registration.update())
       .catch(() => {});
   });

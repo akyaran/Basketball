@@ -150,6 +150,45 @@ state.manualDefense = false;
 state.playerDefenderKey = "player";
 passPlayerBall();
 globalThis.testResult.switchedDefender = state.playerDefenderKey;
+settings.players = "5v5";
+settings.defenseScheme = "man";
+setPossession("cpu");
+const initialManAssignments = getPlayerTeam().every((member) => {
+  const mark = getPlayerManMark(member);
+  return mark && mark.position === member.position;
+});
+const cpuBallHandler = getCpuHandler();
+player.x = 660;
+player.y = 410;
+teammate.x = 270;
+teammate.y = 410;
+playerWing.x = 980;
+playerWing.y = 150;
+playerBig.x = 1000;
+playerBig.y = 670;
+playerCorner.x = 1120;
+playerCorner.y = 730;
+cpuBallHandler.x = 360;
+cpuBallHandler.y = 410;
+state.time = 10000;
+updatePlayerHelpDefense(0.1, cpuBallHandler);
+const manHelpDefender = getPlayerManDefender(cpuBallHandler);
+const pgRecoveredMark = getPlayerManMark(player);
+state.time = state.playerDefenseRotationUntil + 10;
+cpuCorner.x = 300;
+cpuCorner.y = 600;
+playerCorner.x = 1100;
+playerCorner.y = 700;
+playerBig.x = 320;
+playerBig.y = 600;
+const freeRotation = tryPlayerManFreeRotation(cpuBallHandler, getPlayerTeam(), null);
+globalThis.testResult.manDefense = {
+  initialManAssignments,
+  helperKey: getPlayerKey(manHelpDefender),
+  recoveredMark: getCpuKey(pgRecoveredMark),
+  freeRotation,
+  recoveredFreeMark: getCpuKey(getPlayerManMark(playerBig)),
+};
 settings.players = "1v1";
 setPossession("cpu");
 player.x = 700;
@@ -283,7 +322,7 @@ settings.defense = 0.88;
 settings.players = "1v1";
 settings.stealSuccess = 0.1;
 loadSelectedPreset();
-globalThis.testResult.settingsPreset = { defense: settings.defense, players: settings.players, stealSuccess: settings.stealSuccess, saved: Boolean(settingsPresets[0]) };
+globalThis.testResult.settingsPreset = { defense: settings.defense, players: settings.players, stealSuccess: settings.stealSuccess, defenseScheme: settings.defenseScheme, saved: Boolean(settingsPresets[0]) };
 setPossession("player");
 settings.players = "3v3";
 player.x = 600;
@@ -649,6 +688,11 @@ assert.equal(result.autoDefenseMoved, true);
 assert.equal(result.manualDefensePosition.x, 700);
 assert.equal(result.manualDefensePosition.y, 700);
 assert.equal(result.switchedDefender, "teammate");
+assert.equal(result.manDefense.initialManAssignments, true);
+assert.equal(result.manDefense.helperKey, "teammate");
+assert.equal(result.manDefense.recoveredMark, "cpuMate");
+assert.equal(result.manDefense.freeRotation, true);
+assert.equal(result.manDefense.recoveredFreeMark, "cpuCorner");
 assert.equal(result.oneOnOneAutoDefense, true);
 assert.equal(result.leftHomes[0].x, 396);
 assert.equal(result.leftHomes[0].y, 275);
@@ -692,6 +736,7 @@ assert.equal(result.stealCancelledByPass.active, false);
 assert.equal(result.settingsPreset.defense, 0.31);
 assert.equal(result.settingsPreset.players, "3v3");
 assert.equal(result.settingsPreset.stealSuccess, 0.82);
+assert.equal(result.settingsPreset.defenseScheme, "man");
 assert.equal(result.settingsPreset.saved, true);
 assert.equal(result.passFocus.target, result.passFocus.passTarget);
 assert.ok(result.stealFouls.near > result.stealFouls.wide);
