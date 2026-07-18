@@ -84,11 +84,11 @@
     const noise = () => (rng() - 0.5) * tuning.noise;
     const scores = {
       drive: policy.offense.drive * (0.3 + laneOpen * 0.9 + clamp((rimDistance - 120) / 240, 0, 0.42)) + noise(),
-      swing: policy.offense.swing * (0.2 + passQuality * 0.88 + (space < 80 ? 0.28 : 0)) + noise(),
+      swing: policy.offense.swing * policy.offense.pass * (0.22 + passQuality * 0.96 + (space < 80 ? 0.32 : 0)) + noise(),
       crossover: policy.offense.crossover * (0.34 + (space < 128 ? 0.56 : 0.08) + laneOpen * 0.22) + noise(),
       hesitate: policy.offense.hesitate * (0.16 + (space > 105 ? 0.34 : 0) + (clock > 10 ? 0.14 : 0)) + noise(),
       stepback: policy.offense.stepback * (0.08 + (space < 76 ? 0.36 : 0) + (clock < 6 ? 0.22 : 0)) + noise(),
-      screen: policy.offense.screen * screenAvailable * (0.2 + (space < 102 ? 0.7 : 0.24)) + noise(),
+      screen: policy.offense.screen * screenAvailable * (0.18 + (space < 102 ? 0.62 : 0.2) + passQuality * 0.16) + noise(),
     };
     const entries = Object.entries(scores).sort((a, b) => b[1] - a[1]);
     return { style: entries[0][0], scores, threshold: policy.offense.shotThreshold + tuning.thresholdOffset };

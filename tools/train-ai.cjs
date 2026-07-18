@@ -68,11 +68,19 @@ function evaluatePolicy(policy, opponentPolicy, seeds, possessionsPerSeed = 140)
   let idle = 0;
   let actions = 0;
   let repeated = 0;
+  let openSpace = 0;
+  const byScheme = {
+    man: { points: 0, allowed: 0, cpuPossessions: 0, playerPossessions: 0 },
+    zone: { points: 0, allowed: 0, cpuPossessions: 0, playerPossessions: 0 },
+  };
 
   for (const seed of seeds) {
     const random = hashSeed(seed);
     for (let possession = 0; possession < possessionsPerSeed; possession += 1) {
       const attackCpu = possession % 2 === 0;
+      const defenseScheme = Math.floor(possession / 2) % 2 === 0 ? "man" : "zone";
+      if (attackCpu) byScheme[defenseScheme].cpuPossessions += 1;
+      else byScheme[defenseScheme].playerPossessions += 1;
       let rimDistance = 205 + random() * 240;
       let space = 46 + random() * 106;
       let passQuality = random();
@@ -97,10 +105,13 @@ function evaluatePolicy(policy, opponentPolicy, seeds, possessionsPerSeed = 140)
         const onBallIntensity = Math.max(0, Math.min(1, (100 - defense.onBallCushion) / 42));
         const onBallPressure = onBallIntensity * Math.max(0.2, Math.min(1, (142 - space) / 96)) * 0.72;
         const helpPressure = (1 - defense.helpTrigger) * 0.24 + Math.max(0, defense.helpCushion - 76) / 220 * 0.1;
-        const pressure = Math.min(1, onBallPressure + helpPressure + defense.zoneShift * 0.18);
+        const pressure = defenseScheme === "man"
+          ? Math.min(1, onBallPressure * 1.08 + helpPressure * 0.72)
+          : Math.min(1, onBallPressure * 0.68 + helpPressure * 1.12 + defense.zoneShift * 0.56);
         const naturalSpread = Math.max(0, 0.55 - passQuality) * 0.18 + (action === "hesitate" ? 0.05 : 0);
         possessionClump += naturalSpread;
         possessionIdle += action === "hesitate" ? 0.14 : action === "stepback" ? 0.07 : 0.02;
+        openSpace += Math.max(0, passQuality - 0.42) * 0.07 + laneOpen * 0.025;
 
         if (action === "drive") {
           rimDistance -= 72 + random() * 36;
@@ -112,10 +123,12 @@ function evaluatePolicy(policy, opponentPolicy, seeds, possessionsPerSeed = 140)
         } else if (action === "screen") {
           space += 34 + random() * 28 - pressure * 26;
           laneOpen = Math.max(0, Math.min(1, laneOpen + 0.2));
+          openSpace += 0.14 + passQuality * 0.08;
         } else if (action === "swing") {
           passQuality = Math.max(0, Math.min(1, passQuality + 0.12));
           space = 74 + random() * 104;
           turnover = random() < (0.028 + (1 - passQuality) * 0.11);
+          openSpace += 0.22 + passQuality * 0.14;
         } else if (action === "stepback") {
           rimDistance += 30;
           space += 34;
@@ -127,14 +140,20 @@ function evaluatePolicy(policy, opponentPolicy, seeds, possessionsPerSeed = 140)
         if (turnover) break;
         const shouldShoot = rimDistance < 155 || (space > 112 && random() > 0.48) || clock < 5;
         if (!shouldShoot) continue;
-        const contest = Math.min(1, Math.max(0, 1 - (space - 44) / 135) * (0.62 + defense.closeoutUrgency * 0.15) + pressure * (0.18 + defense.closeoutUrgency * 0.08));
+        const schemeContest = defenseScheme === "man" ? 1.06 : 0.96 + defense.zoneShift * 0.2;
+        const contest = Math.min(1, (Math.max(0, 1 - (space - 44) / 135) * (0.62 + defense.closeoutUrgency * 0.15) + pressure * (0.18 + defense.closeoutUrgency * 0.08)) * schemeContest);
         const range = Math.max(0, (rimDistance - 150) / 360);
         const pointsValue = rimDistance > 300 ? 3 : 2;
         const make = Math.max(0.04, Math.min(0.76, 0.67 + laneOpen * 0.13 + (action === "screen" ? 0.055 : 0) - contest * 0.32 - range * 0.24));
         const scored = random() < make;
         const scoredPoints = scored ? pointsValue : 0;
-        if (attackCpu) points += scoredPoints;
-        else allowed += scoredPoints;
+        if (attackCpu) {
+          points += scoredPoints;
+          byScheme[defenseScheme].points += scoredPoints;
+        } else {
+          allowed += scoredPoints;
+          byScheme[defenseScheme].allowed += scoredPoints;
+        }
         fouls += !scored && contest > 0.72 && random() < 0.025 ? 1 : 0;
         break;
       }
@@ -152,14 +171,23 @@ function evaluatePolicy(policy, opponentPolicy, seeds, possessionsPerSeed = 140)
   const clumpRate = clump / (seeds.length * possessionsPerSeed);
   const idleRate = idle / (seeds.length * possessionsPerSeed);
   const repeatRate = repeated / Math.max(1, actions);
-  return { fitness: 0, offensePpp, defensePpp, turnoverRate, foulRate, clumpRate, idleRate, repeatRate };
+  const openSpaceRate = openSpace / (seeds.length * possessionsPerSeed);
+  const summarizeScheme = (scheme) => ({
+    offensePpp: scheme.points / Math.max(1, scheme.cpuPossessions),
+    defensePpp: scheme.allowed / Math.max(1, scheme.playerPossessions),
+  });
+  return {
+    fitness: 0, offensePpp, defensePpp, turnoverRate, foulRate, clumpRate, idleRate, repeatRate, openSpaceRate,
+    byScheme: { man: summarizeScheme(byScheme.man), zone: summarizeScheme(byScheme.zone) },
+  };
 }
 
 function scoreMetrics(metrics, stage = "balanced") {
   const naturalPenalty = metrics.turnoverRate * 1.15 + metrics.foulRate * 0.28 + metrics.clumpRate * 0.45 + metrics.idleRate * 0.42 + metrics.repeatRate * 0.12;
-  if (stage === "offense") return metrics.offensePpp * 1.9 - metrics.defensePpp * 0.45 - naturalPenalty;
-  if (stage === "defense") return metrics.offensePpp * 0.55 - metrics.defensePpp * 2.05 - naturalPenalty;
-  return metrics.offensePpp * 1.48 - metrics.defensePpp * 1.68 - naturalPenalty;
+  const spacingReward = metrics.openSpaceRate * 0.72;
+  if (stage === "offense") return metrics.offensePpp * 1.9 - metrics.defensePpp * 0.45 - naturalPenalty + spacingReward;
+  if (stage === "defense") return metrics.offensePpp * 0.55 - metrics.defensePpp * 2.05 - naturalPenalty + spacingReward * 0.4;
+  return metrics.offensePpp * 1.48 - metrics.defensePpp * 1.68 - naturalPenalty + spacingReward;
 }
 
 function clearsPromotionGates(metrics, baseline) {
@@ -168,7 +196,8 @@ function clearsPromotionGates(metrics, baseline) {
     metrics.turnoverRate <= baseline.turnoverRate + 0.02 &&
     metrics.foulRate <= baseline.foulRate + 0.02 &&
     metrics.clumpRate <= baseline.clumpRate * 1.05 &&
-    metrics.idleRate <= baseline.idleRate * 1.05;
+    metrics.idleRate <= baseline.idleRate * 1.05 &&
+    metrics.openSpaceRate >= baseline.openSpaceRate * 1.02;
 }
 
 function getDefensiveAnchor(policy) {

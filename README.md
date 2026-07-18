@@ -1,6 +1,6 @@
 # Basketball Prototype
 
-Version: `0.12.1`
+Version: `0.12.2`
 
 iPad landscape first basketball prototype for testing shot feel and small-team to 5v5 spacing. Player defense is automatic until the stick is moved, PASS switches the controlled defender, live passes can be intercepted by either team, and nearby defenders can use a timing-based steal attempt.
 
@@ -79,7 +79,7 @@ Run a local CPU training session with the bundled or system Node.js runtime:
 node tools/train-ai.cjs --minutes 45 --workers auto --seed 20260718
 ```
 
-The command uses all logical CPU cores except one, writes resumable metrics under `training-runs/`, evaluates offense and defense against shared seeded scenarios, and replaces `ai-policy.generated.js` only when the candidate clears its promotion gates. A 30-minute run is a practical first pass; longer runs can reuse the same command.
+The command uses all logical CPU cores except one, writes resumable metrics under `training-runs/`, and evaluates offense and defense separately against both man-to-man and 2-3 zone scenarios. In addition to points per possession, it rewards creating open lanes and passing windows so off-ball players use the half court rather than clustering around the ball. It replaces `ai-policy.generated.js` only when the candidate clears its promotion gates. A 30-minute run is a practical first pass; longer runs can reuse the same command.
 
 ## GitHub Pages
 

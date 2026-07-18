@@ -2,24 +2,24 @@
 globalThis.BasketballAI?.setGeneratedPolicy({
   "version": 1,
   "offense": {
-    "drive": 1.0255538153017167,
-    "swing": 0.648216703264055,
-    "crossover": 0.43169202300081116,
-    "hesitate": 0.4095676104037715,
-    "stepback": 0.48677399598130194,
-    "pass": 0.7731858067647563,
-    "cut": 0.852772117805819,
-    "screen": 1.3090127444765203,
-    "shotThreshold": 0.8465225064335243,
-    "rimBias": 0.9976769146737604
+    "drive": 0.4757151585200987,
+    "swing": 0.6594389384173193,
+    "crossover": 0.25621508222742373,
+    "hesitate": 0.30994453724148446,
+    "stepback": 0.585079688273345,
+    "pass": 0.5965798542325241,
+    "cut": 0.38792653513928355,
+    "screen": 1.5493323148671145,
+    "shotThreshold": 0.9183175382139579,
+    "rimBias": 1.0843913884783287
   },
   "defense": {
-    "onBallCushion": 72.54994359772911,
-    "helpTrigger": 0.5781365488591941,
-    "helpCushion": 95.09820754865791,
-    "closeoutUrgency": 1.088457851512735,
-    "zoneShift": 0.1798323856039259,
-    "reboundCrash": 0.9401147826552565
+    "onBallCushion": 65.46468497162589,
+    "helpTrigger": 0.6625417635700923,
+    "helpCushion": 94.96455140729219,
+    "closeoutUrgency": 1.2131055800503159,
+    "zoneShift": 0.25004160526079305,
+    "reboundCrash": 0.7583304176065289
   },
   "difficulties": {
     "easy": {
@@ -40,19 +40,30 @@ globalThis.BasketballAI?.setGeneratedPolicy({
   },
   "meta": {
     "source": "local-cem",
-    "generation": 6,
+    "generation": 525,
     "seed": 20260718,
-    "trainedAt": "2026-07-18T14:36:13.184Z",
+    "trainedAt": "2026-07-18T15:24:10.054Z",
     "objective": "balanced-5v5",
     "metrics": {
-      "fitness": 0.12426930796634766,
-      "offensePpp": 1.3833333333333333,
-      "defensePpp": 1.0928571428571427,
-      "turnoverRate": 0.0035714285714285713,
-      "foulRate": 0.002380952380952381,
-      "clumpRate": 0.05660851423070504,
-      "idleRate": 0.0416190476190473,
-      "repeatRate": 0.32780320366132726
+      "fitness": 0.4631912439889943,
+      "offensePpp": 1.5892857142857142,
+      "defensePpp": 1.1916666666666667,
+      "turnoverRate": 0,
+      "foulRate": 0,
+      "clumpRate": 0.057626237149631374,
+      "idleRate": 0.04276190476190512,
+      "repeatRate": 0.37165924276169265,
+      "openSpaceRate": 0.2799156981873258,
+      "byScheme": {
+        "man": {
+          "offensePpp": 1.5761904761904761,
+          "defensePpp": 1.269047619047619
+        },
+        "zone": {
+          "offensePpp": 1.6023809523809525,
+          "defensePpp": 1.1142857142857143
+        }
+      }
     }
   }
 });

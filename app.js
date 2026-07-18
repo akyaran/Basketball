@@ -70,7 +70,7 @@ const cpuScoreEl = document.getElementById("cpuScore");
 const shotClockEl = document.getElementById("shotClock");
 const gameClockEl = document.getElementById("gameClock");
 
-const APP_VERSION = "0.12.1";
+const APP_VERSION = "0.12.2";
 const SETTINGS_KEY = "basketball-settings-v2";
 const LEGACY_SETTINGS_KEY = "basketball-1v1-settings";
 const SETTINGS_PRESETS_KEY = "basketball-1v1-setting-presets";
@@ -3468,6 +3468,7 @@ function getCpuSpacingSpot(offBall, handler, index) {
 function getFiveOnFiveSpacingSpot(agent, team, owner, handler) {
   const hoop = getAttackHoop(owner);
   const direction = hoop === court.rightHoop ? -1 : 1;
+  const policy = globalThis.BasketballAI?.getPolicy?.() || { offense: { cut: 0.8, pass: 0.8 } };
   const slots = {
     PG: { depth: 520, lane: 0 },
     SG: { depth: 350, lane: -224 },
@@ -3489,10 +3490,27 @@ function getFiveOnFiveSpacingSpot(agent, team, owner, handler) {
   const roamY = Math.cos(state.time / (910 + index * 65) + index * 1.3) * (slot.lane === 0 ? 34 : 18);
   const minX = hoop === court.rightHoop ? court.w * 0.5 + 70 : hoop.x + 72;
   const maxX = hoop === court.rightHoop ? hoop.x - 72 : court.w * 0.5 - 70;
-  return {
+  const target = {
     x: clamp(hoop.x + direction * slot.depth + roamX, minX, maxX),
     y: clamp(hoop.y + slot.lane + roamY, 82, court.h - 82),
   };
+  const handlerRimDistance = distance(handler, hoop);
+  const cutterCycle = ["SG", "SF", "PF", "PG"][Math.floor(state.time / 1260) % 4];
+  const canCut = owner === "cpu" && agent !== handler && agent.position === cutterCycle && agent.position !== "C" &&
+    handlerRimDistance < 330 && policy.offense.cut > 0.62 && Math.sin(state.time / 360 + index * 1.9) > 0.74;
+  if (canCut) {
+    const lane = Math.sign(target.y - hoop.y) || (index % 2 ? 1 : -1);
+    return {
+      x: clamp(hoop.x + direction * 124, minX, maxX),
+      y: clamp(hoop.y + lane * 78, 92, court.h - 92),
+    };
+  }
+  const isWing = agent.position === "SG" || agent.position === "SF";
+  if (isWing && handlerRimDistance < 300) {
+    target.x = clamp(target.x - direction * policy.offense.pass * 52, minX, maxX);
+    target.y = clamp(target.y + Math.sign(target.y - hoop.y || 1) * policy.offense.pass * 18, 82, court.h - 82);
+  }
+  return target;
 }
 
 function getBestCpuPassTarget(handler, handlerSpace) {
@@ -5050,7 +5068,7 @@ window.addEventListener("resize", resize);
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js?v=0.12.1", { updateViaCache: "none" })
+    navigator.serviceWorker.register("sw.js?v=0.12.2", { updateViaCache: "none" })
       .then((registration) => registration.update())
       .catch(() => {});
   });
