@@ -71,9 +71,19 @@
     return policy.difficulties[name] || policy.difficulties.normal;
   }
 
+  function getStrategyTuning(level) {
+    const strength = clamp((Number(level) - 1) / 9, 0, 1);
+    return {
+      reaction: 0.3 - strength * 0.255,
+      noise: 0.34 - strength * 0.3,
+      thresholdOffset: 0.11 - strength * 0.18,
+      shotAccuracy: 0.84 + strength * 0.16,
+    };
+  }
+
   function chooseOffenseAction(snapshot, difficultyName, random) {
     const policy = getPolicy();
-    const tuning = getDifficulty(difficultyName);
+    const tuning = Number.isFinite(Number(difficultyName)) ? getStrategyTuning(difficultyName) : getDifficulty(difficultyName);
     const rng = typeof random === "function" ? random : Math.random;
     const space = clamp(snapshot.space || 0, 0, 220);
     const rimDistance = clamp(snapshot.rimDistance || 0, 0, 600);
@@ -96,7 +106,7 @@
 
   function getDefenseTuning(difficultyName) {
     const policy = getPolicy();
-    const difficulty = getDifficulty(difficultyName);
+    const difficulty = Number.isFinite(Number(difficultyName)) ? getStrategyTuning(difficultyName) : getDifficulty(difficultyName);
     return {
       cushion: policy.defense.onBallCushion + difficulty.reaction * 18,
       helpTrigger: policy.defense.helpTrigger - difficulty.reaction * 0.08,
@@ -114,6 +124,7 @@
     getPolicy,
     setGeneratedPolicy,
     getDifficulty,
+    getStrategyTuning,
     chooseOffenseAction,
     getDefenseTuning,
   };

@@ -7,9 +7,9 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Basketball Prototype</title>
-    <link rel="manifest" href="manifest.json?v=0.12.2" />
+    <link rel="manifest" href="manifest.json?v=0.12.3" />
     <link rel="apple-touch-icon" href="icons/icon-192.svg" />
-    <link rel="stylesheet" href="styles.css?v=0.12.2" />
+    <link rel="stylesheet" href="styles.css?v=0.12.3" />
   </head>
   <body>
     <main class="game-shell">
@@ -111,13 +111,15 @@
               <button id="mode5v5Button" type="button">5on5</button>
             </div>
           </div>
-          <label class="select-row">
-            <span>CPU difficulty</span>
-            <select id="aiDifficultySelect">
-              <option value="easy">Easy</option>
-              <option value="normal" selected>Normal</option>
-              <option value="hard">Hard</option>
-            </select>
+          <label class="slider-row">
+            <span>CPU strategy</span>
+            <strong id="cpuStrategyValue">6 / 10</strong>
+            <input id="cpuStrategySlider" type="range" min="1" max="10" step="1" value="6" />
+          </label>
+          <label class="slider-row">
+            <span>Player AI strategy</span>
+            <strong id="playerStrategyValue">6 / 10</strong>
+            <input id="playerStrategySlider" type="range" min="1" max="10" step="1" value="6" />
           </label>
           <label class="slider-row">
             <span>Defense effect</span>
@@ -197,8 +199,8 @@
       </section>
     </main>
 
-    <script src="ai-policy.js?v=0.12.2"></script>
-    <script src="ai-policy.generated.js?v=0.12.2"></script>
-    <script src="app.js?v=0.12.2"></script>
+    <script src="ai-policy.js?v=0.12.3"></script>
+    <script src="ai-policy.generated.js?v=0.12.3"></script>
+    <script src="app.js?v=0.12.3"></script>
   </body>
 </html>
